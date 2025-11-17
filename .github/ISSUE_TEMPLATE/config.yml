@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://github.com/anand-kamble/mcp-instagram/blob/main/README.md
+    about: Check the README for installation and usage instructions
+  - name: 💬 Discussions
+    url: https://github.com/anand-kamble/mcp-instagram/discussions
+    about: Start a discussion or ask questions in the Discussions forum
+

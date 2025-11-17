@@ -1,0 +1,110 @@
+name: 🐛 Bug Report
+description: Report a bug or issue with the Instagram MCP server
+title: "[Bug]: "
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug! Please fill out the information below to help us address the issue effectively.
+        
+        **Note:** Please do not include your Instagram credentials in this issue.
+
+  - type: input
+    id: mcp-server-version
+    attributes:
+      label: MCP Server Version
+      description: The version of mcp-instagram you're using
+      placeholder: e.g., 0.0.2 or commit hash
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mcp-client
+    attributes:
+      label: MCP Client
+      description: Which MCP client are you using?
+      options:
+        - Claude Desktop
+        - Cursor IDE
+        - Other (please specify in description)
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Provide details about your environment
+      value: |
+        - **Operating System**: [e.g., macOS 14.0, Ubuntu 22.04, Windows 11]
+        - **Node.js Version**: [e.g., 20.10.0]
+        - **MCP Client Version**: [if applicable]
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is
+      placeholder: Describe the bug in detail...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      value: |
+        1. Configure MCP server with credentials
+        2. Call tool '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and Error Messages
+      description: Include any relevant logs, error messages, or stack traces
+      render: shell
+      placeholder: Paste logs here (remove any sensitive information like credentials)
+
+  - type: dropdown
+    id: affected-tool
+    attributes:
+      label: Affected Tool (if applicable)
+      description: Which Instagram MCP tool is affected?
+      options:
+        - instagram_login
+        - instagram_logout
+        - instagram_complete_2fa
+        - instagram_search_accounts
+        - Other / Not applicable
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or information about the problem
+

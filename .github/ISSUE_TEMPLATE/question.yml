@@ -1,0 +1,59 @@
+name: ❓ Question / Discussion
+description: Ask a question or start a discussion about the Instagram MCP server
+title: "[Question]: "
+labels: [question, discussion]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question or want to start a discussion? Please provide the details below.
+        
+        **Note:** For installation and setup questions, please check the [README](https://github.com/anand-kamble/mcp-instagram/blob/main/README.md) first.
+
+  - type: input
+    id: topic
+    attributes:
+      label: Topic
+      description: A concise topic for your question or discussion
+      placeholder: e.g., How to handle 2FA authentication?
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Question / Discussion Details
+      description: Provide detailed information about your question or discussion topic
+      placeholder: A clear and concise explanation of your question or the topic you want to discuss...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: What category does your question fall into?
+      options:
+        - Installation & Setup
+        - Authentication & Session Management
+        - Tool Usage
+        - Configuration
+        - Troubleshooting
+        - General Discussion
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: related-docs
+    attributes:
+      label: Related Documentation
+      description: Link to any related documentation, README sections, or resources you've already checked
+      placeholder: e.g., https://github.com/anand-kamble/mcp-instagram#installation-for-mcp-clients
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, code examples, or information that might help answer your question
+
