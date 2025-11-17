@@ -1,6 +1,6 @@
 # Instagram MCP Tools Implementation Plan
 
-> **Status**: 3 of 116 tools implemented (2.6%) | Last updated: 2024
+> **Status**: 6 of 116 tools implemented (5.2%) | Last updated: 2024
 
 ## Quick Links
 
@@ -76,10 +76,10 @@ When implementing a new tool, follow this checklist:
 
 ### Overall Progress
 
-**Implemented**: 5 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 111 tools 📋
+**Implemented**: 6 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 110 tools 📋
 
 ```
-Progress: ████░░░░░░ 4.3%
+Progress: █████░░░░░ 5.2%
 ```
 
 ### Progress by Tier
@@ -88,7 +88,7 @@ Progress: ████░░░░░░ 4.3%
 |------|----------|------------|-------|----------|
 | Auth | Authentication | 3 | 3 | ██████████ 100% |
 | Tier 1 | Core Profile & Content Viewing | 2 | 6 | ████░░░░░░ 33.3% |
-| Tier 2 | Engagement Actions | 0 | 7 | ░░░░░░░░░░ 0% |
+| Tier 2 | Engagement Actions | 1 | 7 | ██░░░░░░░░ 14.3% |
 | Tier 3 | Social Actions | 0 | 10 | ░░░░░░░░░░ 0% |
 | Tier 4 | Content Publishing | 0 | 9 | ░░░░░░░░░░ 0% |
 | Tier 5 | Direct Messages | 0 | 9 | ░░░░░░░░░░ 0% |
@@ -109,6 +109,7 @@ Progress: ████░░░░░░ 4.3%
 | `instagram_search_accounts` | Tier 1 | [`src/tools/search_accounts.ts`](src/tools/search_accounts.ts) | ✅ Complete |
 | `instagram_get_user_profile` | Tier 1 | [`src/tools/get_user_profile.ts`](src/tools/get_user_profile.ts) | ✅ Complete |
 | `instagram_get_current_user_profile` | Tier 1 | [`src/tools/get_current_user_profile.ts`](src/tools/get_current_user_profile.ts) | ✅ Complete |
+| `instagram_like_post` | Tier 2 | [`src/tools/like_post.ts`](src/tools/like_post.ts) | ✅ Complete |
 
 ### Legend
 - ✅ **Implemented** - Tool is complete and tested
@@ -239,18 +240,16 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
 
 ### TIER 2: Engagement Actions (High Priority)
 
-#### 7. Like Post ⏳ [CLAIM]
-- **Status**: 📋 Planned
-- **File**: `src/tools/like_post.ts` (to be created)
+#### 7. Like Post
+- **Status**: ✅ Implemented
+- **File**: [`src/tools/like_post.ts`](src/tools/like_post.ts)
 - **API Methods**: `media.like`
 - **Description**: Like a post or reel
 - **Parameters**:
   - `mediaId` (string): Post/media ID to like
-  - `module` (string, optional): Module info for tracking
+  - `module` (string, optional): Module info for tracking (e.g., 'feed_timeline', 'profile', 'explore')
 - **Returns**: Success status
-- **Notes**: Requires authentication
-- **Related Issue**: _Create GitHub issue_
-- **Assigned to**: _Available for contribution_
+- **Notes**: Requires authentication. Uses `LikeRequestOptions` with required `moduleInfo` structure.
 
 #### 8. Unlike Post ⏳ [CLAIM]
 - **Status**: 📋 Planned
@@ -1704,4 +1703,4 @@ Error handling is critical, especially for:
 
 **Want to contribute?** Start with Tier 1 tools - they're the most impactful! See [Getting Started](#getting-started-for-contributors) above.
 
-**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 5 | **Available for Contribution**: 111
+**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 6 | **Available for Contribution**: 110

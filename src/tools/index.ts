@@ -10,6 +10,7 @@ import { SearchAccountsTool } from "./search_accounts.js";
 import { LogoutTool } from "./logout.js";
 import { GetUserProfileTool } from "./get_user_profile.js";
 import { GetCurrentUserProfileTool } from "./get_current_user_profile.js";
+import { LikePostTool } from "./like_post.js";
 import type { BaseTool } from "./base.js";
 
 // Import all tools
@@ -20,6 +21,7 @@ const tools: BaseTool[] = [
   new LogoutTool(),
   new GetUserProfileTool(),
   new GetCurrentUserProfileTool(),
+  new LikePostTool(),
   // Add more tools here as you create them
 ];
 
