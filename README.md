@@ -2,6 +2,38 @@
 
 MCP (Model Context Protocol) server for Instagram integration.
 
+## Quick Start from GitHub
+
+### Option 1: Clone and Run with npx (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/anand-kamble/mcp-instagram.git
+cd mcp-instagram
+
+# Install dependencies
+npm install
+
+# Run with npx (automatically builds if needed)
+npx insta-mcp
+```
+
+### Option 2: One-liner with npx (after cloning)
+
+```bash
+git clone https://github.com/anand-kamble/mcp-instagram.git && \
+cd mcp-instagram && \
+npm install && \
+npx insta-mcp
+```
+
+### Option 3: Direct npx from GitHub (if published to npm)
+
+Once published to npm, you can run directly:
+```bash
+npx insta-mcp
+```
+
 ## Setup
 
 1. Install dependencies:
