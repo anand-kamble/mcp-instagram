@@ -2,6 +2,13 @@
 
 MCP (Model Context Protocol) server for Instagram integration.
 
+## Author
+
+**Anand Kamble**
+- GitHub: [@anand-kamble](https://github.com/anand-kamble)
+- Portfolio: [anand-kamble.github.io](https://anand-kamble.github.io/)
+- Email: amkamble@icloud.com
+
 ## Quick Start from GitHub
 
 ### Option 1: Clone and Run with npx (Recommended)

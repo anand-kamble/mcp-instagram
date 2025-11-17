@@ -20,7 +20,11 @@
     "mcp",
     "model-context-protocol"
   ],
-  "author": "",
+  "author": {
+    "name": "Anand Kamble",
+    "email": "amkamble@icloud.com",
+    "url": "https://anand-kamble.github.io/"
+  },
   "license": "ISC",
   "repository": {
     "type": "git",
