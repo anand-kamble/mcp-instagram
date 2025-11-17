@@ -3,6 +3,9 @@ name: Publish to npm
 on:
   release:
     types: [created]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
@@ -41,8 +44,28 @@ jobs:
         env:
           NODE_OPTIONS: '--experimental-vm-modules'
 
+      - name: Extract version from tag (if pushed tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: tag_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Update package version (for tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          npm version $VERSION --no-git-tag-version
+
       - name: Publish to npm (on release)
         if: github.event_name == 'release'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+      - name: Publish to npm (on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
