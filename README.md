@@ -61,6 +61,7 @@ This MCP server can be used with MCP-compatible clients like Claude Desktop and 
     "mcp-instagram": {
       "command": "npx",
       "args": [
+        "-y",
         "mcp-instagram"
       ],
       "env": {
@@ -92,6 +93,7 @@ This MCP server can be used with MCP-compatible clients like Claude Desktop and 
     "mcp-instagram": {
       "command": "npx",
       "args": [
+        "-y",
         "mcp-instagram"
       ],
       "env": {
@@ -119,6 +121,7 @@ If you've cloned the repository locally, you can use the absolute path instead:
     "mcp-instagram": {
       "command": "npx",
       "args": [
+        "-y",
         "/absolute/path/to/mcp-instagram"
       ],
       "env": {
