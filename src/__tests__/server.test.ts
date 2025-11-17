@@ -66,10 +66,10 @@ describe("MCP Server Integration Tests", () => {
   });
 
   describe("Login Tool", () => {
-    it("should require username and password", async () => {
+    it("should require environment variables for credentials", async () => {
       const result = await client.callTool("instagram_login", {});
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("required");
+      expect(result.content[0].text).toContain("Instagram credentials not found");
     });
 
     it("should reject invalid credentials gracefully", async () => {
@@ -116,12 +116,11 @@ describe("MCP Server Integration Tests", () => {
     });
 
     it("should validate tool input schema", async () => {
-      // Missing required password
-      const result = await client.callTool("instagram_login", {
-        username: "test_user",
-      });
+      // Login tool uses environment variables, not parameters
+      // Test that it properly handles missing env vars
+      const result = await client.callTool("instagram_login", {});
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("required");
+      expect(result.content[0].text).toContain("Instagram credentials not found");
     });
   });
 });

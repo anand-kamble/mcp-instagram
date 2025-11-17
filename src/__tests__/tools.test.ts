@@ -25,14 +25,28 @@ describe("Login Tool", () => {
     expect(definition.name).toBe("instagram_login");
     expect(definition.description).toContain("Login");
     expect(definition.inputSchema.type).toBe("object");
-    expect(definition.inputSchema.required).toContain("username");
-    expect(definition.inputSchema.required).toContain("password");
+    // Login tool uses environment variables, so no required parameters in schema
+    expect(definition.inputSchema.required).toEqual([]);
   });
 
-  it("should validate required parameters", async () => {
+  it("should validate that credentials are available", async () => {
+    // Clear env vars for this test
+    const originalUsername = process.env.IG_USERNAME;
+    const originalPassword = process.env.IG_PASSWORD;
+    delete process.env.IG_USERNAME;
+    delete process.env.IG_PASSWORD;
+    
+    // Reload config to pick up env var changes
+    const { getConfig, setConfig } = await import("../config/index.js");
+    setConfig({ igpapi: {} });
+    
     await expect(
       loginTool.execute({} as any)
-    ).rejects.toThrow("required");
+    ).rejects.toThrow("Instagram credentials not found");
+    
+    // Restore env vars
+    if (originalUsername) process.env.IG_USERNAME = originalUsername;
+    if (originalPassword) process.env.IG_PASSWORD = originalPassword;
   });
 
   // Note: These tests would require mocking igpapiClient which is complex with ESM
