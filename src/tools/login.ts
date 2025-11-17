@@ -6,35 +6,33 @@
 import { BaseTool } from "./base.js";
 import type { ToolDefinition, ToolResult } from "../types/index.js";
 import { igpapiClient } from "../igpapi/index.js";
+import { getConfig } from "../config/index.js";
 
 export class LoginTool extends BaseTool {
   getDefinition(): ToolDefinition {
     return {
       name: "instagram_login",
-      description: "Login to an Instagram account. The session will be saved and persist across server restarts.",
+      description: "Login to an Instagram account using credentials from environment variables (IG_USERNAME and IG_PASSWORD). The session will be saved and persist across server restarts.",
       inputSchema: {
         type: "object",
-        properties: {
-          username: {
-            type: "string",
-            description: "Instagram username",
-          },
-          password: {
-            type: "string",
-            description: "Instagram password",
-          },
-        },
-        required: ["username", "password"],
+        properties: {},
+        required: [],
       },
     };
   }
 
-  async execute(args: { username: string; password: string }): Promise<ToolResult> {
-    const { username, password } = args;
+  async execute(args: Record<string, unknown>): Promise<ToolResult> {
+    // Get credentials from environment variables via config
+    const config = getConfig();
+    const username = config.igpapi?.username;
+    const password = config.igpapi?.password;
 
-    // Validate inputs
+    // Validate that credentials are available
     if (!username || !password) {
-      throw new Error("Username and password are required");
+      throw new Error(
+        "Instagram credentials not found in environment variables. " +
+        "Please set IG_USERNAME and IG_PASSWORD environment variables."
+      );
     }
 
     // Check if already logged in
