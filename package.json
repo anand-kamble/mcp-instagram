@@ -22,6 +22,14 @@
   ],
   "author": "",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anand-kamble/mcp-instagram.git"
+  },
+  "bugs": {
+    "url": "https://github.com/anand-kamble/mcp-instagram/issues"
+  },
+  "homepage": "https://github.com/anand-kamble/mcp-instagram#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "instagram-private-api": "^1.46.1",

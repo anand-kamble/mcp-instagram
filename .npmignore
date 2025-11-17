@@ -1,0 +1,44 @@
+# Source files (not needed in npm package)
+src/
+*.ts
+!*.d.ts
+
+# Test files
+**/__tests__/
+**/*.test.ts
+test-manual.ts
+jest.config.js
+tsconfig*.json
+
+# Development files
+.cursor/
+.github/
+.env.example
+*.md
+!README.md
+
+# Build artifacts (will be included)
+# build/
+
+# Dependencies
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
+
+# Session data
+data/
+*.session.json
+
