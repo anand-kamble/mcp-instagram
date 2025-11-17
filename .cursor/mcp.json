@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "sequential-thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
+    },
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    },
+    "insta-mcp": {
+      "command": "node",
+      "args": [
+        "/home/iunme/insta-mcp/build/server.js"
+      ]
+    }
+  }
+}
