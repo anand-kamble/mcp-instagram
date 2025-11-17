@@ -4,6 +4,9 @@
 
 MCP (Model Context Protocol) server for Instagram integration.
 
+<a href="https://glama.ai/mcp/servers/@anand-kamble/mcp-instagram">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@anand-kamble/mcp-instagram/badge" alt="Insta Server MCP server" />
+</a>
 
 ## Quick Start from GitHub
 
@@ -70,4 +73,3 @@ Watch mode for development:
 ```bash
 npm run dev
 ```
-
