@@ -37,37 +37,112 @@ Once published to npm, you can run directly:
 npx mcp-instagram
 ```
 
-## Setup
+## Installation for MCP Clients
 
-1. Install dependencies:
-```bash
-npm install
+This MCP server can be used with MCP-compatible clients like Claude Desktop and Cursor IDE. Follow the instructions below to configure the server in your client.
+
+### Prerequisites
+
+- Node.js 18+ or 20+ installed
+- Instagram account credentials (`IG_USERNAME` and `IG_PASSWORD`)
+
+### For Claude Desktop
+
+1. **Locate your Claude Desktop configuration file:**
+   - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+   - **Linux:** `~/.config/Claude/claude_desktop_config.json`
+
+2. **Open the configuration file** (create it if it doesn't exist) and add the following to the `mcpServers` section:
+
+```json
+{
+  "mcpServers": {
+    "mcp-instagram": {
+      "command": "npx",
+      "args": [
+        "mcp-instagram"
+      ],
+      "env": {
+        "IG_USERNAME": "your_instagram_username",
+        "IG_PASSWORD": "your_instagram_password"
+      }
+    }
+  }
+}
 ```
 
-2. Build the project:
-```bash
-npm run build
+3. **Replace the credentials:**
+   - Replace `your_instagram_username` with your Instagram username
+   - Replace `your_instagram_password` with your Instagram password
+
+4. **Restart Claude Desktop** for the changes to take effect.
+
+### For Cursor IDE
+
+1. **Locate your Cursor MCP configuration file:**
+   - Workspace config: `.cursor/mcp.json` (in your project root)
+   - Global config: `~/.cursor/mcp.json`
+
+2. **Open the configuration file** (create it if it doesn't exist) and add the following to the `mcpServers` section:
+
+```json
+{
+  "mcpServers": {
+    "mcp-instagram": {
+      "command": "npx",
+      "args": [
+        "mcp-instagram"
+      ],
+      "env": {
+        "IG_USERNAME": "your_instagram_username",
+        "IG_PASSWORD": "your_instagram_password"
+      }
+    }
+  }
+}
 ```
 
-3. Run the server:
-```bash
-npm start
+3. **Replace the credentials:**
+   - Replace `your_instagram_username` with your Instagram username
+   - Replace `your_instagram_password` with your Instagram password
+
+4. **Restart Cursor** for the changes to take effect.
+
+### Alternative: Using Local Installation
+
+If you've cloned the repository locally, you can use the absolute path instead:
+
+```json
+{
+  "mcpServers": {
+    "mcp-instagram": {
+      "command": "npx",
+      "args": [
+        "/absolute/path/to/mcp-instagram"
+      ],
+      "env": {
+        "IG_USERNAME": "your_instagram_username",
+        "IG_PASSWORD": "your_instagram_password"
+      }
+    }
+  }
+}
 ```
 
-Or using npx (from the project directory):
-```bash
-npx mcp-instagram
-```
+**Note:** Replace `/absolute/path/to/mcp-instagram` with the actual absolute path to your cloned repository.
 
-Or using npx with a local path:
-```bash
-npx /path/to/mcp-instagram
-```
+### Security Notes
 
-## Development
+- **Never commit your credentials** to version control
+- The `env` section in the MCP configuration is the recommended way to provide credentials
+- Credentials are never requested from the LLM - they must be provided via environment variables
+- If you have 2FA enabled on your Instagram account, you'll need to complete the 2FA flow using the `instagram_complete_2fa` tool after initial login
 
-Watch mode for development:
-```bash
-npm run dev
-```
+### Verifying Installation
+
+After restarting your MCP client, you should see the Instagram MCP server in the list of available servers. You can verify it's working by asking the AI assistant to use Instagram tools like:
+- `instagram_login` - Login to Instagram
+- `instagram_logout` - Logout from Instagram
+- `instagram_search_accounts` - Search for Instagram accounts
 
