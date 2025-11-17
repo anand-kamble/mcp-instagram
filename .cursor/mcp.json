@@ -15,10 +15,14 @@
       ]
     },
     "insta-mcp": {
-      "command": "node",
+      "command": "npx",
       "args": [
-        "/home/iunme/insta-mcp/build/server.js"
-      ]
+        "/home/iunme/insta-mcp"
+      ],
+      "env": {
+        "IG_USERNAME": "your_instagram_username",
+        "IG_PASSWORD": "your_instagram_password"
+      }
     }
   }
 }
