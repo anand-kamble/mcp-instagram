@@ -76,10 +76,10 @@ When implementing a new tool, follow this checklist:
 
 ### Overall Progress
 
-**Implemented**: 4 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 112 tools 📋
+**Implemented**: 5 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 111 tools 📋
 
 ```
-Progress: ███░░░░░░░ 3.4%
+Progress: ████░░░░░░ 4.3%
 ```
 
 ### Progress by Tier
@@ -87,7 +87,7 @@ Progress: ███░░░░░░░ 3.4%
 | Tier | Category | Implemented | Total | Progress |
 |------|----------|------------|-------|----------|
 | Auth | Authentication | 3 | 3 | ██████████ 100% |
-| Tier 1 | Core Profile & Content Viewing | 1 | 6 | ██░░░░░░░░ 16.7% |
+| Tier 1 | Core Profile & Content Viewing | 2 | 6 | ████░░░░░░ 33.3% |
 | Tier 2 | Engagement Actions | 0 | 7 | ░░░░░░░░░░ 0% |
 | Tier 3 | Social Actions | 0 | 10 | ░░░░░░░░░░ 0% |
 | Tier 4 | Content Publishing | 0 | 9 | ░░░░░░░░░░ 0% |
@@ -108,6 +108,7 @@ Progress: ███░░░░░░░ 3.4%
 | `instagram_complete_2fa` | Auth | [`src/tools/complete_2fa.ts`](src/tools/complete_2fa.ts) | ✅ Complete |
 | `instagram_search_accounts` | Tier 1 | [`src/tools/search_accounts.ts`](src/tools/search_accounts.ts) | ✅ Complete |
 | `instagram_get_user_profile` | Tier 1 | [`src/tools/get_user_profile.ts`](src/tools/get_user_profile.ts) | ✅ Complete |
+| `instagram_get_current_user_profile` | Tier 1 | [`src/tools/get_current_user_profile.ts`](src/tools/get_current_user_profile.ts) | ✅ Complete |
 
 ### Legend
 - ✅ **Implemented** - Tool is complete and tested
@@ -167,16 +168,14 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
   - is_private, is_business_account flags
 - **Example Implementation**: See [`src/tools/search_accounts.ts`](src/tools/search_accounts.ts) for pattern
 
-#### 2. Get Current User Profile ⏳ [CLAIM]
-- **Status**: 📋 Planned
-- **File**: `src/tools/get_current_user_profile.ts` (to be created)
+#### 2. Get Current User Profile
+- **Status**: ✅ Implemented
+- **File**: [`src/tools/get_current_user_profile.ts`](src/tools/get_current_user_profile.ts)
 - **API Methods**: `account.currentUser`
 - **Description**: Get logged-in user's own profile information
 - **Parameters**: None (uses authenticated session)
 - **Returns**: Complete account details for logged-in user
 - **Notes**: Requires authentication
-- **Related Issue**: _Create GitHub issue_
-- **Assigned to**: _Available for contribution_
 
 #### 3. Get User Posts Feed ⏳ [CLAIM]
 - **Status**: 📋 Planned
@@ -1705,4 +1704,4 @@ Error handling is critical, especially for:
 
 **Want to contribute?** Start with Tier 1 tools - they're the most impactful! See [Getting Started](#getting-started-for-contributors) above.
 
-**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 4 | **Available for Contribution**: 112
+**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 5 | **Available for Contribution**: 111
