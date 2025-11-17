@@ -15,7 +15,7 @@ cd mcp-instagram
 npm install
 
 # Run with npx (automatically builds if needed)
-npx insta-mcp
+npx mcp-instagram
 ```
 
 ### Option 2: One-liner with npx (after cloning)
@@ -24,14 +24,14 @@ npx insta-mcp
 git clone https://github.com/anand-kamble/mcp-instagram.git && \
 cd mcp-instagram && \
 npm install && \
-npx insta-mcp
+npx mcp-instagram
 ```
 
 ### Option 3: Direct npx from GitHub (if published to npm)
 
 Once published to npm, you can run directly:
 ```bash
-npx insta-mcp
+npx mcp-instagram
 ```
 
 ## Setup
@@ -53,12 +53,12 @@ npm start
 
 Or using npx (from the project directory):
 ```bash
-npx insta-mcp
+npx mcp-instagram
 ```
 
 Or using npx with a local path:
 ```bash
-npx /path/to/insta-mcp
+npx /path/to/mcp-instagram
 ```
 
 ## Development

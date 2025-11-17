@@ -15,7 +15,7 @@ cd mcp-instagram
 npm install
 
 # Run with npx (builds automatically if needed)
-npx insta-mcp
+npx mcp-instagram
 ```
 
 ### Method 2: Using npx with Local Path
@@ -89,13 +89,13 @@ If you prefer to publish manually:
 
 4. **After publishing**, anyone can run:
    ```bash
-   npx insta-mcp
+   npx mcp-instagram
    ```
 
    Or install globally:
    ```bash
-   npm install -g insta-mcp
-   insta-mcp
+   npm install -g mcp-instagram
+   mcp-instagram
    ```
 
 ## Configuration for MCP Clients
@@ -107,7 +107,7 @@ Add to `.cursor/mcp.json` or `~/.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "insta-mcp": {
+    "mcp-instagram": {
       "command": "npx",
       "args": [
         "/absolute/path/to/mcp-instagram"
@@ -131,7 +131,7 @@ Add to your Claude Desktop config file:
 ```json
 {
   "mcpServers": {
-    "insta-mcp": {
+    "mcp-instagram": {
       "command": "npx",
       "args": [
         "/absolute/path/to/mcp-instagram"

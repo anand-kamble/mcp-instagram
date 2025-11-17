@@ -13,6 +13,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: mc-instagram-build
     permissions:
       contents: write
       id-token: write

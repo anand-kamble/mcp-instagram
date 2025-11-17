@@ -24,10 +24,10 @@ Add the following configuration to your `mcpServers` object:
 ```json
 {
   "mcpServers": {
-    "insta-mcp": {
+    "mcp-instagram": {
       "command": "npx",
       "args": [
-        "/home/iunme/insta-mcp"
+        "/home/iunme/mcp-instagram"
       ],
       "env": {
         "IG_USERNAME": "your_instagram_username",
@@ -42,10 +42,10 @@ Add the following configuration to your `mcpServers` object:
 ```json
 {
   "mcpServers": {
-    "insta-mcp": {
+    "mcp-instagram": {
       "command": "node",
       "args": [
-        "/home/iunme/insta-mcp/build/server.js"
+        "/home/iunme/mcp-instagram/build/server.js"
       ],
       "env": {
         "IG_USERNAME": "your_instagram_username",
@@ -56,7 +56,7 @@ Add the following configuration to your `mcpServers` object:
 }
 ```
 
-**Note:** Replace `/home/iunme/insta-mcp` with the absolute path to your project directory.
+**Note:** Replace `/home/iunme/mcp-instagram` with the absolute path to your project directory.
 
 ### For Claude Desktop
 
@@ -72,10 +72,10 @@ Add the following to the `mcpServers` section:
 ```json
 {
   "mcpServers": {
-    "insta-mcp": {
+    "mcp-instagram": {
       "command": "npx",
       "args": [
-        "/absolute/path/to/insta-mcp"
+        "/absolute/path/to/mcp-instagram"
       ],
       "env": {
         "IG_USERNAME": "your_instagram_username",
@@ -90,10 +90,10 @@ Add the following to the `mcpServers` section:
 ```json
 {
   "mcpServers": {
-    "insta-mcp": {
+    "mcp-instagram": {
       "command": "node",
       "args": [
-        "/absolute/path/to/insta-mcp/build/server.js"
+        "/absolute/path/to/mcp-instagram/build/server.js"
       ],
       "env": {
         "IG_USERNAME": "your_instagram_username",
@@ -106,7 +106,7 @@ Add the following to the `mcpServers` section:
 
 **Important:** 
 - Use absolute paths (not relative paths)
-- Replace `/absolute/path/to/insta-mcp` with your actual project path
+- Replace `/absolute/path/to/mcp-instagram` with your actual project path
 - Make sure Node.js is in your PATH, or use the full path to node (e.g., `/home/iunme/.nvm/versions/node/v24.11.0/bin/node`)
 
 ## Environment Variables (Optional)

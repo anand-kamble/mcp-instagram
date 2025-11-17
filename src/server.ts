@@ -13,7 +13,7 @@ import { igpapiClient } from "./igpapi/index.js";
 
 const server = new Server(
   {
-    name: "insta-mcp",
+    name: "mcp-instagram",
     version: "1.0.0",
   },
   {

@@ -1,12 +1,12 @@
 # Publishing Guide
 
-This guide explains how to publish `insta-mcp` to npm using GitHub Actions.
+This guide explains how to publish `mcp-instagram` to npm using GitHub Actions.
 
 ## Prerequisites
 
 1. **npm account**: Create one at https://www.npmjs.com/signup
 2. **GitHub repository**: Your code should be on GitHub
-3. **npm package name availability**: Check if `insta-mcp` is available on npm
+3. **npm package name availability**: Check if `mcp-instagram` is available on npm
 
 ## Automated Publishing Setup
 
@@ -54,10 +54,10 @@ This guide explains how to publish `insta-mcp` to npm using GitHub Actions.
 After the workflow completes:
 
 1. Check the workflow run status (should be green ✅)
-2. Visit https://www.npmjs.com/package/insta-mcp
+2. Visit https://www.npmjs.com/package/mcp-instagram
 3. Test installation:
    ```bash
-   npx insta-mcp
+   npx mcp-instagram
    ```
 
 ## Manual Publishing (Alternative)
@@ -101,7 +101,7 @@ Update the version in `package.json` before creating a release, or use the manua
 
 ### Workflow Fails with "Package name already exists"
 
-- The package name `insta-mcp` might be taken
+- The package name `mcp-instagram` might be taken
 - Change the name in `package.json` to something unique
 - Or contact npm support if it's your package
 
