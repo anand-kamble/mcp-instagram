@@ -20,6 +20,25 @@ The MCP configuration file is located at `~/.cursor/mcp.json` (or `.cursor/mcp.j
 
 Add the following configuration to your `mcpServers` object:
 
+**Option 1: Using npx (Recommended)**
+```json
+{
+  "mcpServers": {
+    "insta-mcp": {
+      "command": "npx",
+      "args": [
+        "/home/iunme/insta-mcp"
+      ],
+      "env": {
+        "IG_USERNAME": "your_instagram_username",
+        "IG_PASSWORD": "your_instagram_password"
+      }
+    }
+  }
+}
+```
+
+**Option 2: Using node directly**
 ```json
 {
   "mcpServers": {
@@ -49,6 +68,25 @@ The configuration file location depends on your OS:
 
 Add the following to the `mcpServers` section:
 
+**Option 1: Using npx (Recommended)**
+```json
+{
+  "mcpServers": {
+    "insta-mcp": {
+      "command": "npx",
+      "args": [
+        "/absolute/path/to/insta-mcp"
+      ],
+      "env": {
+        "IG_USERNAME": "your_instagram_username",
+        "IG_PASSWORD": "your_instagram_password"
+      }
+    }
+  }
+}
+```
+
+**Option 2: Using node directly**
 ```json
 {
   "mcpServers": {

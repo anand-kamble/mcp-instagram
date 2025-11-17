@@ -19,6 +19,16 @@ npm run build
 npm start
 ```
 
+Or using npx (from the project directory):
+```bash
+npx insta-mcp
+```
+
+Or using npx with a local path:
+```bash
+npx /path/to/insta-mcp
+```
+
 ## Development
 
 Watch mode for development:
