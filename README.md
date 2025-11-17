@@ -1,41 +1,9 @@
 # Insta MCP Server
 
-> **⚠️ This project is currently under active development. Features may change, and the API is not yet stable. Use at your own risk.**
+
 
 MCP (Model Context Protocol) server for Instagram integration.
 
-
-## Quick Start from GitHub
-
-### Option 1: Clone and Run with npx (Recommended)
-
-```bash
-# Clone the repository
-git clone https://github.com/anand-kamble/mcp-instagram.git
-cd mcp-instagram
-
-# Install dependencies
-npm install
-
-# Run with npx (automatically builds if needed)
-npx mcp-instagram
-```
-
-### Option 2: One-liner with npx (after cloning)
-
-```bash
-git clone https://github.com/anand-kamble/mcp-instagram.git && \
-cd mcp-instagram && \
-npm install && \
-npx mcp-instagram
-```
-
-### Option 3: Direct npx from GitHub (if published to npm)
-
-Once published to npm, you can run directly:
-```bash
-npx mcp-instagram
-```
 
 ## Installation for MCP Clients
 
@@ -78,6 +46,11 @@ This MCP server can be used with MCP-compatible clients like Claude Desktop and 
    - Replace `your_instagram_password` with your Instagram password
 
 4. **Restart Claude Desktop** for the changes to take effect.
+And you should see the Instagram MCP server in the list of available tools.
+<p align="center">
+  <img src="./media/claude_install_2.png" alt="Claude Desktop MCP Server Configuration" width="48%" style="display:inline-block; margin-right: 1%;">
+  <img src="./media/claude_install_1.png" alt="Claude Desktop MCP Server Configuration" width="48%" style="display:inline-block;">
+</p>
 
 ### For Cursor IDE
 
@@ -150,6 +123,9 @@ After restarting your MCP client, you should see the Instagram MCP server in the
 - `instagram_search_accounts` - Search for Instagram accounts
 - and many more...
 ---
+
+> **⚠️ This project is currently under active development. Features may change, and the API is not yet stable. Use at your own risk.**
+
 
 ## ⚠️ Legal Disclaimer and Risks
 
