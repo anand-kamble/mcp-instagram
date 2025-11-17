@@ -152,7 +152,7 @@ You can set environment variables instead of using the config file:
 ```bash
 export IG_USERNAME="your_instagram_username"
 export IG_PASSWORD="your_instagram_password"
-npx insta-mcp
+npx mcp-instagram
 ```
 
 ## Troubleshooting
