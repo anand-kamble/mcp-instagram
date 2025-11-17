@@ -1,6 +1,6 @@
 {
   "name": "mcp-instagram",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "MCP server for Instagram",
   "type": "module",
   "main": "build/server.js",
