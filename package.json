@@ -4,6 +4,9 @@
   "description": "MCP server for Instagram",
   "type": "module",
   "main": "build/server.js",
+  "bin": {
+    "insta-mcp": "./bin/insta-mcp.js"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node build/server.js",
