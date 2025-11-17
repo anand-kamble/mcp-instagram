@@ -76,10 +76,10 @@ When implementing a new tool, follow this checklist:
 
 ### Overall Progress
 
-**Implemented**: 3 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 113 tools 📋
+**Implemented**: 4 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 112 tools 📋
 
 ```
-Progress: ██░░░░░░░░ 2.6%
+Progress: ███░░░░░░░ 3.4%
 ```
 
 ### Progress by Tier
@@ -87,7 +87,7 @@ Progress: ██░░░░░░░░ 2.6%
 | Tier | Category | Implemented | Total | Progress |
 |------|----------|------------|-------|----------|
 | Auth | Authentication | 3 | 3 | ██████████ 100% |
-| Tier 1 | Core Profile & Content Viewing | 0 | 6 | ░░░░░░░░░░ 0% |
+| Tier 1 | Core Profile & Content Viewing | 1 | 6 | ██░░░░░░░░ 16.7% |
 | Tier 2 | Engagement Actions | 0 | 7 | ░░░░░░░░░░ 0% |
 | Tier 3 | Social Actions | 0 | 10 | ░░░░░░░░░░ 0% |
 | Tier 4 | Content Publishing | 0 | 9 | ░░░░░░░░░░ 0% |
@@ -107,6 +107,7 @@ Progress: ██░░░░░░░░ 2.6%
 | `instagram_login` | Auth | [`src/tools/login.ts`](src/tools/login.ts) | ✅ Complete |
 | `instagram_complete_2fa` | Auth | [`src/tools/complete_2fa.ts`](src/tools/complete_2fa.ts) | ✅ Complete |
 | `instagram_search_accounts` | Tier 1 | [`src/tools/search_accounts.ts`](src/tools/search_accounts.ts) | ✅ Complete |
+| `instagram_get_user_profile` | Tier 1 | [`src/tools/get_user_profile.ts`](src/tools/get_user_profile.ts) | ✅ Complete |
 
 ### Legend
 - ✅ **Implemented** - Tool is complete and tested
@@ -151,9 +152,9 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
 
 ### TIER 1: Core Profile & Content Viewing (Highest Priority)
 
-#### 1. Get User Profile ⏳ [CLAIM]
-- **Status**: 📋 Planned
-- **File**: `src/tools/get_user_profile.ts` (to be created)
+#### 1. Get User Profile
+- **Status**: ✅ Implemented
+- **File**: [`src/tools/get_user_profile.ts`](src/tools/get_user_profile.ts)
 - **API Methods**: `user.info`, `user.usernameinfo`
 - **Description**: Get profile information by user ID or username
 - **Parameters**:
@@ -165,8 +166,6 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
   - verification status, profile picture URL
   - is_private, is_business_account flags
 - **Example Implementation**: See [`src/tools/search_accounts.ts`](src/tools/search_accounts.ts) for pattern
-- **Related Issue**: _Create GitHub issue_
-- **Assigned to**: _Available for contribution_
 
 #### 2. Get Current User Profile ⏳ [CLAIM]
 - **Status**: 📋 Planned
@@ -1706,4 +1705,4 @@ Error handling is critical, especially for:
 
 **Want to contribute?** Start with Tier 1 tools - they're the most impactful! See [Getting Started](#getting-started-for-contributors) above.
 
-**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 3 | **Available for Contribution**: 113
+**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 4 | **Available for Contribution**: 112

@@ -8,6 +8,7 @@ import { LoginTool } from "./login.js";
 import { Complete2FATool } from "./complete_2fa.js";
 import { SearchAccountsTool } from "./search_accounts.js";
 import { LogoutTool } from "./logout.js";
+import { GetUserProfileTool } from "./get_user_profile.js";
 import type { BaseTool } from "./base.js";
 
 // Import all tools
@@ -16,6 +17,7 @@ const tools: BaseTool[] = [
   new Complete2FATool(),
   new SearchAccountsTool(),
   new LogoutTool(),
+  new GetUserProfileTool(),
   // Add more tools here as you create them
 ];
 
