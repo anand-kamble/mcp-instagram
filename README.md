@@ -145,4 +145,37 @@ After restarting your MCP client, you should see the Instagram MCP server in the
 - `instagram_login` - Login to Instagram
 - `instagram_logout` - Logout from Instagram
 - `instagram_search_accounts` - Search for Instagram accounts
+- and many more...
+---
+
+## ⚠️ Legal Disclaimer and Risks
+
+**IMPORTANT: READ BEFORE USE**
+
+This software utilizes unofficial Instagram API access methods and is not affiliated with, endorsed by, or supported by Meta Platforms, Inc. (Instagram). By using this MCP server, you acknowledge and agree to the following:
+
+### Risks and Limitations
+
+1. **Account Restrictions:** Use of this software may result in your Instagram account being flagged for suspicious or automated activity. Instagram may issue warnings, temporarily restrict account functionality, or permanently suspend or delete your account.
+
+2. **No Guarantees:** The functionality of this software is not guaranteed and may cease to work at any time due to changes in Instagram's platform, security measures, or policies.
+
+### Limitation of Liability
+
+THE AUTHOR(S) AND CONTRIBUTOR(S) OF THIS SOFTWARE PROVIDE IT "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. IN NO EVENT SHALL THE AUTHOR(S) BE HELD LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF THE SOFTWARE, INCLUDING BUT NOT LIMITED TO:
+
+- Instagram account suspensions, restrictions, or deletions
+- Loss of data, content, or access to Instagram services
+- Any direct, indirect, incidental, special, consequential, or punitive damages
+
+**BY USING THIS SOFTWARE, YOU ACCEPT FULL RESPONSIBILITY FOR ANY CONSEQUENCES THAT MAY RESULT FROM ITS USE. USE AT YOUR OWN RISK.**
+
+### Recommendations
+
+- Use a secondary or test Instagram account rather than your primary account
+- Monitor your account for any warnings or unusual activity
+- Implement reasonable rate limiting and usage patterns to minimize detection risk
+- Regularly review Instagram's Terms of Service and comply with all applicable laws and regulations
+
+**TL;DR:** It's just common sense, really. Don't go liking 10,000 posts in an hour or following everyone on the planet. Instagram doesn't like robots pretending to be humans. Be cool, don't overdo it, and you'll probably be fine. Probably.
 
