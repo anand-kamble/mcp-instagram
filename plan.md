@@ -1,6 +1,6 @@
 # Instagram MCP Tools Implementation Plan
 
-> **Status**: 6 of 116 tools implemented (5.2%) | Last updated: 2024
+> **Status**: 7 of 116 tools implemented (6.0%) | Last updated: 2024
 
 ## Quick Links
 
@@ -76,10 +76,10 @@ When implementing a new tool, follow this checklist:
 
 ### Overall Progress
 
-**Implemented**: 6 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 110 tools 📋
+**Implemented**: 7 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 109 tools 📋
 
 ```
-Progress: █████░░░░░ 5.2%
+Progress: ██████░░░░ 6.0%
 ```
 
 ### Progress by Tier
@@ -87,7 +87,7 @@ Progress: █████░░░░░ 5.2%
 | Tier | Category | Implemented | Total | Progress |
 |------|----------|------------|-------|----------|
 | Auth | Authentication | 3 | 3 | ██████████ 100% |
-| Tier 1 | Core Profile & Content Viewing | 2 | 6 | ████░░░░░░ 33.3% |
+| Tier 1 | Core Profile & Content Viewing | 3 | 6 | █████░░░░░ 50.0% |
 | Tier 2 | Engagement Actions | 1 | 7 | ██░░░░░░░░ 14.3% |
 | Tier 3 | Social Actions | 0 | 10 | ░░░░░░░░░░ 0% |
 | Tier 4 | Content Publishing | 0 | 9 | ░░░░░░░░░░ 0% |
@@ -109,6 +109,7 @@ Progress: █████░░░░░ 5.2%
 | `instagram_search_accounts` | Tier 1 | [`src/tools/search_accounts.ts`](src/tools/search_accounts.ts) | ✅ Complete |
 | `instagram_get_user_profile` | Tier 1 | [`src/tools/get_user_profile.ts`](src/tools/get_user_profile.ts) | ✅ Complete |
 | `instagram_get_current_user_profile` | Tier 1 | [`src/tools/get_current_user_profile.ts`](src/tools/get_current_user_profile.ts) | ✅ Complete |
+| `instagram_get_post_details` | Tier 1 | [`src/tools/get_post_details.ts`](src/tools/get_post_details.ts) | ✅ Complete |
 | `instagram_like_post` | Tier 2 | [`src/tools/like_post.ts`](src/tools/like_post.ts) | ✅ Complete |
 
 ### Legend
@@ -194,9 +195,9 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
 - **Related Issue**: _Create GitHub issue_
 - **Assigned to**: _Available for contribution_
 
-#### 4. Get Post Details ⏳ [CLAIM]
-- **Status**: 📋 Planned
-- **File**: `src/tools/get_post_details.ts` (to be created)
+#### 4. Get Post Details
+- **Status**: ✅ Implemented
+- **File**: [`src/tools/get_post_details.ts`](src/tools/get_post_details.ts)
 - **API Methods**: `media.info`
 - **Description**: Get detailed information about a specific post
 - **Parameters**:
@@ -205,8 +206,7 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
   - caption, comments, likes, engagement metrics
   - media URLs, dimensions, location (if available)
   - author information
-- **Related Issue**: _Create GitHub issue_
-- **Assigned to**: _Available for contribution_
+- **Notes**: Returns comprehensive post details with formatting similar to other tools
 
 #### 5. Get User Stories ⏳ [CLAIM]
 - **Status**: 📋 Planned
@@ -1703,4 +1703,4 @@ Error handling is critical, especially for:
 
 **Want to contribute?** Start with Tier 1 tools - they're the most impactful! See [Getting Started](#getting-started-for-contributors) above.
 
-**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 6 | **Available for Contribution**: 110
+**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 7 | **Available for Contribution**: 109
