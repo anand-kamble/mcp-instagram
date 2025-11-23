@@ -14,6 +14,7 @@ import { GetUserPostsTool } from "./get_user_posts.js";
 import { LikePostTool } from "./like_post.js";
 import { GetPostDetailsTool } from "./get_post_details.js";
 import { GetUserStoriesTool } from "./get_user_stories.js";
+import { GetTimelineFeedTool } from "./get_timeline_feed.js";
 import type { BaseTool } from "./base.js";
 
 // Import all tools
@@ -28,6 +29,7 @@ const tools: BaseTool[] = [
   new LikePostTool(),
   new GetPostDetailsTool(),
   new GetUserStoriesTool(),
+  new GetTimelineFeedTool(),
   // Add more tools here as you create them
 ];
 

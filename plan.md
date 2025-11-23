@@ -1,6 +1,6 @@
 # Instagram MCP Tools Implementation Plan
 
-> **Status**: 8 of 116 tools implemented (6.9%) | Last updated: 2024
+> **Status**: 9 of 116 tools implemented (7.8%) | Last updated: 2024
 
 ## Quick Links
 
@@ -76,10 +76,10 @@ When implementing a new tool, follow this checklist:
 
 ### Overall Progress
 
-**Implemented**: 8 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 108 tools 📋
+**Implemented**: 9 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 107 tools 📋
 
 ```
-Progress: ███████░░░ 6.9%
+Progress: ████████░░ 7.8%
 ```
 
 ### Progress by Tier
@@ -87,7 +87,7 @@ Progress: ███████░░░ 6.9%
 | Tier | Category | Implemented | Total | Progress |
 |------|----------|------------|-------|----------|
 | Auth | Authentication | 3 | 3 | ██████████ 100% |
-| Tier 1 | Core Profile & Content Viewing | 4 | 6 | ███████░░░ 66.7% |
+| Tier 1 | Core Profile & Content Viewing | 5 | 6 | █████████░ 83.3% |
 | Tier 2 | Engagement Actions | 1 | 7 | ██░░░░░░░░ 14.3% |
 | Tier 3 | Social Actions | 0 | 10 | ░░░░░░░░░░ 0% |
 | Tier 4 | Content Publishing | 0 | 9 | ░░░░░░░░░░ 0% |
@@ -111,6 +111,7 @@ Progress: ███████░░░ 6.9%
 | `instagram_get_current_user_profile` | Tier 1 | [`src/tools/get_current_user_profile.ts`](src/tools/get_current_user_profile.ts) | ✅ Complete |
 | `instagram_get_post_details` | Tier 1 | [`src/tools/get_post_details.ts`](src/tools/get_post_details.ts) | ✅ Complete |
 | `instagram_get_user_stories` | Tier 1 | [`src/tools/get_user_stories.ts`](src/tools/get_user_stories.ts) | ✅ Complete |
+| `instagram_get_timeline_feed` | Tier 1 | [`src/tools/get_timeline_feed.ts`](src/tools/get_timeline_feed.ts) | ✅ Complete |
 | `instagram_like_post` | Tier 2 | [`src/tools/like_post.ts`](src/tools/like_post.ts) | ✅ Complete |
 
 ### Legend
@@ -225,18 +226,19 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
   - interactive elements (polls, questions, etc.)
 - **Notes**: Stories expire after 24 hours. Supports both userId and username parameters.
 
-#### 6. Get Timeline Feed ⏳ [CLAIM]
-- **Status**: 📋 Planned
-- **File**: `src/tools/get_timeline_feed.ts` (to be created)
+#### 6. Get Timeline Feed
+- **Status**: ✅ Implemented
+- **File**: [`src/tools/get_timeline_feed.ts`](src/tools/get_timeline_feed.ts)
 - **API Methods**: `feed.timeline()`
 - **Description**: Get home feed (posts from followed accounts)
 - **Parameters**:
   - `maxId` (string, optional): Cursor for pagination
-  - `limit` (number, optional): Number of posts to fetch
-- **Returns**: Paginated feed of posts from followed accounts
-- **Notes**: Requires authentication, supports pagination
-- **Related Issue**: _Create GitHub issue_
-- **Assigned to**: _Available for contribution_
+  - `limit` (number, optional): Number of posts to fetch (default: 12, max: 50)
+- **Returns**: Paginated feed of posts from followed accounts with:
+  - media URLs, captions, engagement metrics
+  - author information, timestamps, location (if available)
+  - pagination info for next page
+- **Notes**: Requires authentication, supports pagination via maxId cursor
 
 ---
 
@@ -1705,4 +1707,4 @@ Error handling is critical, especially for:
 
 **Want to contribute?** Start with Tier 1 tools - they're the most impactful! See [Getting Started](#getting-started-for-contributors) above.
 
-**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 8 | **Available for Contribution**: 108
+**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 9 | **Available for Contribution**: 107

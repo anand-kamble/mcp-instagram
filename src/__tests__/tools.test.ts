@@ -9,6 +9,7 @@ import { LoginTool } from "../tools/login.js";
 import { Complete2FATool } from "../tools/complete_2fa.js";
 import { GetPostDetailsTool } from "../tools/get_post_details.js";
 import { GetUserStoriesTool } from "../tools/get_user_stories.js";
+import { GetTimelineFeedTool } from "../tools/get_timeline_feed.js";
 import { igpapiClient } from "../igpapi/index.js";
 
 // Note: ESM mocking is complex. These tests use the actual client.
@@ -325,6 +326,94 @@ describe("Get User Stories Tool", () => {
 
   it.skip("should handle session expired error", async () => {
     // Would require mocking session expiration
+    // Better tested via integration tests
+  });
+});
+
+describe("Get Timeline Feed Tool", () => {
+  let getTimelineFeedTool: GetTimelineFeedTool;
+
+  beforeEach(() => {
+    getTimelineFeedTool = new GetTimelineFeedTool();
+  });
+
+  it("should have correct tool definition", () => {
+    const definition = getTimelineFeedTool.getDefinition();
+    
+    expect(definition.name).toBe("instagram_get_timeline_feed");
+    expect(definition.description).toContain("home feed");
+    expect(definition.description).toContain("accounts you follow");
+    expect(definition.description).toContain("Requires authentication");
+    expect(definition.inputSchema.type).toBe("object");
+    expect(definition.inputSchema.properties).toHaveProperty("maxId");
+    expect(definition.inputSchema.properties).toHaveProperty("limit");
+    expect(definition.inputSchema.required).toEqual([]);
+  });
+
+  it("should require authentication", async () => {
+    await expect(
+      getTimelineFeedTool.execute({} as any)
+    ).rejects.toThrow("Not logged in");
+  });
+
+  it("should reject invalid maxId format", async () => {
+    await expect(
+      getTimelineFeedTool.execute({ maxId: "" })
+    ).rejects.toThrow("maxId must be a non-empty string");
+  });
+
+  it("should accept valid maxId", async () => {
+    // This will fail at authentication check, but validation should pass
+    await expect(
+      getTimelineFeedTool.execute({ maxId: "valid_cursor_123" })
+    ).rejects.toThrow("Not logged in");
+    await expect(
+      getTimelineFeedTool.execute({ maxId: "valid_cursor_123" })
+    ).rejects.not.toThrow("maxId must be a non-empty string");
+  });
+
+  it("should clamp limit to valid range (1-50)", async () => {
+    // Test that limit is clamped - this is tested indirectly through execution
+    // The actual clamping happens in the execute method
+    const tool = new GetTimelineFeedTool();
+    // We can't easily test the clamping without mocking, but we can verify
+    // the tool definition shows the default
+    const definition = tool.getDefinition();
+    expect(definition.inputSchema.properties?.limit?.default).toBe(12);
+  });
+
+  it.skip("should fetch timeline feed successfully when authenticated", async () => {
+    // Would require mocking igpapiClient.isLoggedIn() and feed.timeline()
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle authentication required error", async () => {
+    // Would require mocking authentication state
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle rate limiting error", async () => {
+    // Would require mocking rate limit response
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle session expired error", async () => {
+    // Would require mocking session expiration
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle pagination with maxId", async () => {
+    // Would require mocking the feed pagination
+    // Better tested via integration tests
+  });
+
+  it.skip("should respect limit parameter", async () => {
+    // Would require mocking the feed items
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle empty feed correctly", async () => {
+    // Would require mocking empty feed response
     // Better tested via integration tests
   });
 });
