@@ -13,6 +13,7 @@ import { GetCurrentUserProfileTool } from "./get_current_user_profile.js";
 import { GetUserPostsTool } from "./get_user_posts.js";
 import { LikePostTool } from "./like_post.js";
 import { GetPostDetailsTool } from "./get_post_details.js";
+import { GetUserStoriesTool } from "./get_user_stories.js";
 import type { BaseTool } from "./base.js";
 
 // Import all tools
@@ -26,6 +27,7 @@ const tools: BaseTool[] = [
   new GetUserPostsTool(),
   new LikePostTool(),
   new GetPostDetailsTool(),
+  new GetUserStoriesTool(),
   // Add more tools here as you create them
 ];
 

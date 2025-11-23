@@ -1,6 +1,6 @@
 # Instagram MCP Tools Implementation Plan
 
-> **Status**: 7 of 116 tools implemented (6.0%) | Last updated: 2024
+> **Status**: 8 of 116 tools implemented (6.9%) | Last updated: 2024
 
 ## Quick Links
 
@@ -76,10 +76,10 @@ When implementing a new tool, follow this checklist:
 
 ### Overall Progress
 
-**Implemented**: 7 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 109 tools 📋
+**Implemented**: 8 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 108 tools 📋
 
 ```
-Progress: ██████░░░░ 6.0%
+Progress: ███████░░░ 6.9%
 ```
 
 ### Progress by Tier
@@ -87,7 +87,7 @@ Progress: ██████░░░░ 6.0%
 | Tier | Category | Implemented | Total | Progress |
 |------|----------|------------|-------|----------|
 | Auth | Authentication | 3 | 3 | ██████████ 100% |
-| Tier 1 | Core Profile & Content Viewing | 3 | 6 | █████░░░░░ 50.0% |
+| Tier 1 | Core Profile & Content Viewing | 4 | 6 | ███████░░░ 66.7% |
 | Tier 2 | Engagement Actions | 1 | 7 | ██░░░░░░░░ 14.3% |
 | Tier 3 | Social Actions | 0 | 10 | ░░░░░░░░░░ 0% |
 | Tier 4 | Content Publishing | 0 | 9 | ░░░░░░░░░░ 0% |
@@ -110,6 +110,7 @@ Progress: ██████░░░░ 6.0%
 | `instagram_get_user_profile` | Tier 1 | [`src/tools/get_user_profile.ts`](src/tools/get_user_profile.ts) | ✅ Complete |
 | `instagram_get_current_user_profile` | Tier 1 | [`src/tools/get_current_user_profile.ts`](src/tools/get_current_user_profile.ts) | ✅ Complete |
 | `instagram_get_post_details` | Tier 1 | [`src/tools/get_post_details.ts`](src/tools/get_post_details.ts) | ✅ Complete |
+| `instagram_get_user_stories` | Tier 1 | [`src/tools/get_user_stories.ts`](src/tools/get_user_stories.ts) | ✅ Complete |
 | `instagram_like_post` | Tier 2 | [`src/tools/like_post.ts`](src/tools/like_post.ts) | ✅ Complete |
 
 ### Legend
@@ -208,20 +209,21 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
   - author information
 - **Notes**: Returns comprehensive post details with formatting similar to other tools
 
-#### 5. Get User Stories ⏳ [CLAIM]
-- **Status**: 📋 Planned
-- **File**: `src/tools/get_user_stories.ts` (to be created)
+#### 5. Get User Stories
+- **Status**: ✅ Implemented
+- **File**: [`src/tools/get_user_stories.ts`](src/tools/get_user_stories.ts)
 - **API Methods**: `feed.userStory()`
 - **Description**: Get active stories from a user
 - **Parameters**:
-  - `userId` (string): User ID to get stories from
+  - `userId` (string, optional): User ID to get stories from
+  - `username` (string, optional): Instagram username (alternative to userId)
 - **Returns**: Story items with:
   - media URLs, timestamps
   - story type, duration
   - viewer count (if own stories)
-- **Notes**: Stories expire after 24 hours
-- **Related Issue**: _Create GitHub issue_
-- **Assigned to**: _Available for contribution_
+  - expiration time
+  - interactive elements (polls, questions, etc.)
+- **Notes**: Stories expire after 24 hours. Supports both userId and username parameters.
 
 #### 6. Get Timeline Feed ⏳ [CLAIM]
 - **Status**: 📋 Planned
@@ -1703,4 +1705,4 @@ Error handling is critical, especially for:
 
 **Want to contribute?** Start with Tier 1 tools - they're the most impactful! See [Getting Started](#getting-started-for-contributors) above.
 
-**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 7 | **Available for Contribution**: 109
+**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 8 | **Available for Contribution**: 108

@@ -8,6 +8,7 @@ import { jest } from "@jest/globals";
 import { LoginTool } from "../tools/login.js";
 import { Complete2FATool } from "../tools/complete_2fa.js";
 import { GetPostDetailsTool } from "../tools/get_post_details.js";
+import { GetUserStoriesTool } from "../tools/get_user_stories.js";
 import { igpapiClient } from "../igpapi/index.js";
 
 // Note: ESM mocking is complex. These tests use the actual client.
@@ -179,6 +180,137 @@ describe("Get Post Details Tool", () => {
   it.skip("should handle private account error", async () => {
     // Would require mocking the API call
     // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle authentication required error", async () => {
+    // Would require mocking authentication state
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle rate limiting error", async () => {
+    // Would require mocking rate limit response
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle session expired error", async () => {
+    // Would require mocking session expiration
+    // Better tested via integration tests
+  });
+});
+
+describe("Get User Stories Tool", () => {
+  let getUserStoriesTool: GetUserStoriesTool;
+
+  beforeEach(() => {
+    getUserStoriesTool = new GetUserStoriesTool();
+  });
+
+  it("should have correct tool definition", () => {
+    const definition = getUserStoriesTool.getDefinition();
+    
+    expect(definition.name).toBe("instagram_get_user_stories");
+    expect(definition.description).toContain("active Instagram stories");
+    expect(definition.description).toContain("user ID or username");
+    expect(definition.description).toContain("expire after 24 hours");
+    expect(definition.inputSchema.type).toBe("object");
+    expect(definition.inputSchema.properties).toHaveProperty("userId");
+    expect(definition.inputSchema.properties).toHaveProperty("username");
+    expect(definition.inputSchema.required).toEqual([]);
+  });
+
+  it("should require either userId or username", async () => {
+    await expect(
+      getUserStoriesTool.execute({} as any)
+    ).rejects.toThrow("Either userId or username must be provided");
+  });
+
+  it("should reject when both userId and username are provided", async () => {
+    await expect(
+      getUserStoriesTool.execute({ userId: "123456", username: "testuser" })
+    ).rejects.toThrow("Both userId and username cannot be provided");
+  });
+
+  it("should reject empty userId", async () => {
+    await expect(
+      getUserStoriesTool.execute({ userId: "" })
+    ).rejects.toThrow("userId cannot be empty");
+  });
+
+  it("should reject non-numeric userId", async () => {
+    await expect(
+      getUserStoriesTool.execute({ userId: "abc123" })
+    ).rejects.toThrow("userId must be a numeric string");
+  });
+
+  it("should reject userId with special characters", async () => {
+    await expect(
+      getUserStoriesTool.execute({ userId: "123-456" })
+    ).rejects.toThrow("userId must be a numeric string");
+  });
+
+  it("should accept valid numeric userId", async () => {
+    // This will fail at API call level, but validation should pass
+    await expect(
+      getUserStoriesTool.execute({ userId: "123456789" })
+    ).rejects.not.toThrow("userId must be a numeric string");
+  });
+
+  it("should reject empty username", async () => {
+    await expect(
+      getUserStoriesTool.execute({ username: "" })
+    ).rejects.toThrow("username cannot be empty");
+  });
+
+  it("should reject username with invalid characters", async () => {
+    await expect(
+      getUserStoriesTool.execute({ username: "test-user!" })
+    ).rejects.toThrow("username contains invalid characters");
+  });
+
+  it("should reject username that is too long", async () => {
+    const longUsername = "a".repeat(31);
+    await expect(
+      getUserStoriesTool.execute({ username: longUsername })
+    ).rejects.toThrow("username is too long");
+  });
+
+  it("should accept username with @ symbol and strip it", async () => {
+    // This will fail at API call level, but validation should pass
+    await expect(
+      getUserStoriesTool.execute({ username: "@testuser" })
+    ).rejects.not.toThrow("username contains invalid characters");
+  });
+
+  it("should accept valid username format", async () => {
+    // This will fail at API call level, but validation should pass
+    await expect(
+      getUserStoriesTool.execute({ username: "test_user.123" })
+    ).rejects.not.toThrow("username contains invalid characters");
+  });
+
+  it.skip("should fetch stories successfully with userId", async () => {
+    // Would require mocking igpapiClient and feed.userStory()
+    // Better tested via integration tests
+  });
+
+  it.skip("should fetch stories successfully with username", async () => {
+    // Would require mocking igpapiClient, user.usernameinfo(), and feed.userStory()
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle user not found error", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle private account error", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle no stories available (should not error)", async () => {
+    // Would require mocking empty stories response
+    // Better tested via integration tests
   });
 
   it.skip("should handle authentication required error", async () => {
