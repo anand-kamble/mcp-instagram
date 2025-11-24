@@ -37,7 +37,7 @@ export class CommentOnPostTool extends BaseTool {
     const { mediaId, text, replyToCommentId } = args;
 
     // Validate mediaId
-    if (!mediaId || typeof mediaId !== "string") {
+    if (typeof mediaId !== "string") {
       throw new Error("mediaId is required and must be a string");
     }
 
@@ -47,7 +47,7 @@ export class CommentOnPostTool extends BaseTool {
     }
 
     // Validate text
-    if (!text || typeof text !== "string") {
+    if (typeof text !== "string") {
       throw new Error("text is required and must be a string");
     }
 

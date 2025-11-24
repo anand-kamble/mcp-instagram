@@ -29,7 +29,7 @@ export class GetPostDetailsTool extends BaseTool {
     const { mediaId } = args;
 
     // Validate mediaId
-    if (!mediaId || typeof mediaId !== "string") {
+    if (typeof mediaId !== "string") {
       throw new Error("mediaId is required and must be a string");
     }
 

@@ -32,17 +32,24 @@ export class GetUserStoriesTool extends BaseTool {
   async execute(args: { userId?: string; username?: string }): Promise<ToolResult> {
     const { userId, username } = args;
 
+    // Check if parameters are provided (even if empty)
+    const userIdProvided = userId !== undefined && userId !== null;
+    const usernameProvided = username !== undefined && username !== null;
+
     // Validate that exactly one parameter is provided
-    if (!userId && !username) {
+    if (!userIdProvided && !usernameProvided) {
       throw new Error("Either userId or username must be provided. Please provide one of them.");
     }
 
-    if (userId && username) {
+    if (userIdProvided && usernameProvided) {
       throw new Error("Both userId and username cannot be provided. Please provide only one of them.");
     }
 
     // Validate userId format if provided
-    if (userId) {
+    if (userIdProvided) {
+      if (typeof userId !== "string") {
+        throw new Error("userId must be a string");
+      }
       const userIdTrimmed = userId.trim();
       if (userIdTrimmed.length === 0) {
         throw new Error("userId cannot be empty");
@@ -54,7 +61,10 @@ export class GetUserStoriesTool extends BaseTool {
     }
 
     // Validate username format if provided
-    if (username) {
+    if (usernameProvided) {
+      if (typeof username !== "string") {
+        throw new Error("username must be a string");
+      }
       const usernameTrimmed = username.trim().replace(/^@/, ""); // Remove @ if present
       if (usernameTrimmed.length === 0) {
         throw new Error("username cannot be empty");

@@ -33,13 +33,6 @@ export class GetTimelineFeedTool extends BaseTool {
   async execute(args: { maxId?: string; limit?: number }): Promise<ToolResult> {
     const { maxId, limit = 12 } = args;
 
-    // Check if logged in (required for timeline feed)
-    if (!igpapiClient.isLoggedIn()) {
-      throw new Error(
-        "Not logged in. Please use the instagram_login tool to authenticate first."
-      );
-    }
-
     // Validate limit
     const postLimit = Math.min(Math.max(1, limit || 12), 50);
 
@@ -48,6 +41,13 @@ export class GetTimelineFeedTool extends BaseTool {
       if (typeof maxId !== "string" || maxId.trim().length === 0) {
         throw new Error("maxId must be a non-empty string if provided");
       }
+    }
+
+    // Check if logged in (required for timeline feed)
+    if (!igpapiClient.isLoggedIn()) {
+      throw new Error(
+        "Not logged in. Please use the instagram_login tool to authenticate first."
+      );
     }
 
     // Ensure client is initialized
