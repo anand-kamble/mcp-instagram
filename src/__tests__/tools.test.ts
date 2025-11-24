@@ -10,6 +10,7 @@ import { Complete2FATool } from "../tools/complete_2fa.js";
 import { GetPostDetailsTool } from "../tools/get_post_details.js";
 import { GetUserStoriesTool } from "../tools/get_user_stories.js";
 import { GetTimelineFeedTool } from "../tools/get_timeline_feed.js";
+import { CommentOnPostTool } from "../tools/comment_on_post.js";
 import { igpapiClient } from "../igpapi/index.js";
 
 // Note: ESM mocking is complex. These tests use the actual client.
@@ -415,6 +416,195 @@ describe("Get Timeline Feed Tool", () => {
   it.skip("should handle empty feed correctly", async () => {
     // Would require mocking empty feed response
     // Better tested via integration tests
+  });
+});
+
+describe("Comment on Post Tool", () => {
+  let commentOnPostTool: CommentOnPostTool;
+
+  beforeEach(() => {
+    commentOnPostTool = new CommentOnPostTool();
+  });
+
+  it("should have correct tool definition", () => {
+    const definition = commentOnPostTool.getDefinition();
+    
+    expect(definition.name).toBe("instagram_comment_on_post");
+    expect(definition.description).toContain("comment");
+    expect(definition.description).toContain("Instagram post");
+    expect(definition.description).toContain("Requires authentication");
+    expect(definition.inputSchema.type).toBe("object");
+    expect(definition.inputSchema.properties).toHaveProperty("mediaId");
+    expect(definition.inputSchema.properties).toHaveProperty("text");
+    expect(definition.inputSchema.properties).toHaveProperty("replyToCommentId");
+    expect(definition.inputSchema.required).toContain("mediaId");
+    expect(definition.inputSchema.required).toContain("text");
+    expect(definition.inputSchema.required).not.toContain("replyToCommentId");
+  });
+
+  it("should require mediaId", async () => {
+    await expect(
+      commentOnPostTool.execute({} as any)
+    ).rejects.toThrow("mediaId is required");
+  });
+
+  it("should require text", async () => {
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456" } as any)
+    ).rejects.toThrow("text is required");
+  });
+
+  it("should reject non-string mediaId", async () => {
+    await expect(
+      commentOnPostTool.execute({ mediaId: 123456, text: "test comment" } as any)
+    ).rejects.toThrow("mediaId is required and must be a string");
+  });
+
+  it("should reject empty mediaId", async () => {
+    await expect(
+      commentOnPostTool.execute({ mediaId: "", text: "test comment" })
+    ).rejects.toThrow("mediaId cannot be empty");
+  });
+
+  it("should reject whitespace-only mediaId", async () => {
+    await expect(
+      commentOnPostTool.execute({ mediaId: "   ", text: "test comment" })
+    ).rejects.toThrow("mediaId cannot be empty");
+  });
+
+  it("should reject non-string text", async () => {
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: 123 } as any)
+    ).rejects.toThrow("text is required and must be a string");
+  });
+
+  it("should reject empty text", async () => {
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: "" })
+    ).rejects.toThrow("text cannot be empty");
+  });
+
+  it("should reject whitespace-only text", async () => {
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: "   " })
+    ).rejects.toThrow("text cannot be empty");
+  });
+
+  it("should reject text exceeding 2200 characters", async () => {
+    const longText = "a".repeat(2201);
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: longText })
+    ).rejects.toThrow("exceeds maximum length of 2200 characters");
+  });
+
+  it("should accept text with exactly 2200 characters", async () => {
+    const maxLengthText = "a".repeat(2200);
+    // This will fail at authentication check, but validation should pass
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: maxLengthText })
+    ).rejects.toThrow("Not logged in");
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: maxLengthText })
+    ).rejects.not.toThrow("exceeds maximum length");
+  });
+
+  it("should reject non-string replyToCommentId", async () => {
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: "test", replyToCommentId: 123 } as any)
+    ).rejects.toThrow("replyToCommentId must be a string if provided");
+  });
+
+  it("should reject empty replyToCommentId", async () => {
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: "test", replyToCommentId: "" })
+    ).rejects.toThrow("replyToCommentId cannot be empty if provided");
+  });
+
+  it("should reject whitespace-only replyToCommentId", async () => {
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: "test", replyToCommentId: "   " })
+    ).rejects.toThrow("replyToCommentId cannot be empty if provided");
+  });
+
+  it("should accept valid replyToCommentId", async () => {
+    // This will fail at authentication check, but validation should pass
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: "test", replyToCommentId: "789012" })
+    ).rejects.toThrow("Not logged in");
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: "test", replyToCommentId: "789012" })
+    ).rejects.not.toThrow("replyToCommentId");
+  });
+
+  it("should require authentication", async () => {
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: "test comment" })
+    ).rejects.toThrow("Not logged in");
+  });
+
+  it("should trim mediaId whitespace", async () => {
+    // This will fail at authentication check, but validation should pass
+    await expect(
+      commentOnPostTool.execute({ mediaId: "  123456  ", text: "test comment" })
+    ).rejects.toThrow("Not logged in");
+    await expect(
+      commentOnPostTool.execute({ mediaId: "  123456  ", text: "test comment" })
+    ).rejects.not.toThrow("mediaId cannot be empty");
+  });
+
+  it("should trim text whitespace", async () => {
+    // This will fail at authentication check, but validation should pass
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: "  test comment  " })
+    ).rejects.toThrow("Not logged in");
+    await expect(
+      commentOnPostTool.execute({ mediaId: "123456", text: "  test comment  " })
+    ).rejects.not.toThrow("text cannot be empty");
+  });
+
+  it.skip("should comment on post successfully when authenticated", async () => {
+    // Would require mocking igpapiClient.isLoggedIn() and media.comment()
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle media not found error", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle comments disabled error", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle authentication required error", async () => {
+    // Would require mocking authentication state
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle rate limiting error", async () => {
+    // Would require mocking rate limit response
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle session expired error", async () => {
+    // Would require mocking session expiration
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle invalid comment text error", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle reply to comment successfully", async () => {
+    // Would require mocking igpapiClient and media.comment() with replyToCommentId
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle comment not found error when replying", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
   });
 });
 
