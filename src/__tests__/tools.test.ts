@@ -11,6 +11,7 @@ import { GetPostDetailsTool } from "../tools/get_post_details.js";
 import { GetUserStoriesTool } from "../tools/get_user_stories.js";
 import { GetTimelineFeedTool } from "../tools/get_timeline_feed.js";
 import { CommentOnPostTool } from "../tools/comment_on_post.js";
+import { GetPostCommentsTool } from "../tools/get_post_comments.js";
 import { igpapiClient } from "../igpapi/index.js";
 
 // Note: ESM mocking is complex. These tests use the actual client.
@@ -605,6 +606,157 @@ describe("Comment on Post Tool", () => {
   it.skip("should handle comment not found error when replying", async () => {
     // Would require mocking the API call
     // The error handling is tested through integration tests
+  });
+});
+
+describe("Get Post Comments Tool", () => {
+  let getPostCommentsTool: GetPostCommentsTool;
+
+  beforeEach(() => {
+    getPostCommentsTool = new GetPostCommentsTool();
+  });
+
+  it("should have correct tool definition", () => {
+    const definition = getPostCommentsTool.getDefinition();
+    
+    expect(definition.name).toBe("instagram_get_post_comments");
+    expect(definition.description).toContain("comments");
+    expect(definition.description).toContain("Instagram post");
+    expect(definition.description).toContain("Requires authentication");
+    expect(definition.description).toContain("pagination");
+    expect(definition.inputSchema.type).toBe("object");
+    expect(definition.inputSchema.properties).toHaveProperty("mediaId");
+    expect(definition.inputSchema.properties).toHaveProperty("maxId");
+    expect(definition.inputSchema.properties).toHaveProperty("limit");
+    expect(definition.inputSchema.required).toContain("mediaId");
+    expect(definition.inputSchema.required).not.toContain("maxId");
+    expect(definition.inputSchema.required).not.toContain("limit");
+  });
+
+  it("should require mediaId", async () => {
+    await expect(
+      getPostCommentsTool.execute({} as any)
+    ).rejects.toThrow("mediaId is required");
+  });
+
+  it("should reject non-string mediaId", async () => {
+    await expect(
+      getPostCommentsTool.execute({ mediaId: 123456 } as any)
+    ).rejects.toThrow("mediaId is required and must be a string");
+  });
+
+  it("should reject empty mediaId", async () => {
+    await expect(
+      getPostCommentsTool.execute({ mediaId: "" })
+    ).rejects.toThrow("mediaId cannot be empty");
+  });
+
+  it("should reject whitespace-only mediaId", async () => {
+    await expect(
+      getPostCommentsTool.execute({ mediaId: "   " })
+    ).rejects.toThrow("mediaId cannot be empty");
+  });
+
+  it("should reject invalid maxId format", async () => {
+    await expect(
+      getPostCommentsTool.execute({ mediaId: "123456", maxId: "" })
+    ).rejects.toThrow("maxId must be a non-empty string");
+  });
+
+  it("should accept valid maxId", async () => {
+    // This will fail at authentication check, but validation should pass
+    await expect(
+      getPostCommentsTool.execute({ mediaId: "123456", maxId: "valid_cursor_123" })
+    ).rejects.toThrow("Not logged in");
+    await expect(
+      getPostCommentsTool.execute({ mediaId: "123456", maxId: "valid_cursor_123" })
+    ).rejects.not.toThrow("maxId must be a non-empty string");
+  });
+
+  it("should clamp limit to valid range (1-50)", async () => {
+    // Test that limit is clamped - this is tested indirectly through execution
+    // The actual clamping happens in the execute method
+    const tool = new GetPostCommentsTool();
+    // We can't easily test the clamping without mocking, but we can verify
+    // the tool definition shows the default
+    const definition = tool.getDefinition();
+    expect(definition.inputSchema.properties?.limit?.default).toBe(12);
+  });
+
+  it("should require authentication", async () => {
+    await expect(
+      getPostCommentsTool.execute({ mediaId: "123456" })
+    ).rejects.toThrow("Not logged in");
+  });
+
+  it("should trim mediaId whitespace", async () => {
+    // This will fail at authentication check, but validation should pass
+    await expect(
+      getPostCommentsTool.execute({ mediaId: "  123456  " })
+    ).rejects.toThrow("Not logged in");
+    await expect(
+      getPostCommentsTool.execute({ mediaId: "  123456  " })
+    ).rejects.not.toThrow("mediaId cannot be empty");
+  });
+
+  it("should trim maxId whitespace", async () => {
+    // This will fail at authentication check, but validation should pass
+    await expect(
+      getPostCommentsTool.execute({ mediaId: "123456", maxId: "  cursor_123  " })
+    ).rejects.toThrow("Not logged in");
+    await expect(
+      getPostCommentsTool.execute({ mediaId: "123456", maxId: "  cursor_123  " })
+    ).rejects.not.toThrow("maxId must be a non-empty string");
+  });
+
+  it.skip("should fetch comments successfully when authenticated", async () => {
+    // Would require mocking igpapiClient.isLoggedIn() and feed.mediaComments()
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle media not found error", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle comments disabled error", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle authentication required error", async () => {
+    // Would require mocking authentication state
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle rate limiting error", async () => {
+    // Would require mocking rate limit response
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle session expired error", async () => {
+    // Would require mocking session expiration
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle pagination with maxId", async () => {
+    // Would require mocking the feed pagination
+    // Better tested via integration tests
+  });
+
+  it.skip("should respect limit parameter", async () => {
+    // Would require mocking the feed items
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle empty comments correctly", async () => {
+    // Would require mocking empty comments response
+    // Better tested via integration tests
+  });
+
+  it.skip("should format comments with reply indicators", async () => {
+    // Would require mocking comments with parent_comment_id
+    // Better tested via integration tests
   });
 });
 

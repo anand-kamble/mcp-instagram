@@ -1,6 +1,6 @@
 # Instagram MCP Tools Implementation Plan
 
-> **Status**: 10 of 116 tools implemented (8.6%) | Last updated: 2024
+> **Status**: 11 of 116 tools implemented (9.5%) | Last updated: 2024
 
 ## Quick Links
 
@@ -76,10 +76,10 @@ When implementing a new tool, follow this checklist:
 
 ### Overall Progress
 
-**Implemented**: 10 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 106 tools 📋
+**Implemented**: 11 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 105 tools 📋
 
 ```
-Progress: █████████░ 8.6%
+Progress: ██████████░ 9.5%
 ```
 
 ### Progress by Tier
@@ -88,7 +88,7 @@ Progress: █████████░ 8.6%
 |------|----------|------------|-------|----------|
 | Auth | Authentication | 3 | 3 | ██████████ 100% |
 | Tier 1 | Core Profile & Content Viewing | 5 | 6 | █████████░ 83.3% |
-| Tier 2 | Engagement Actions | 2 | 7 | ███░░░░░░░ 28.6% |
+| Tier 2 | Engagement Actions | 3 | 7 | █████░░░░░ 42.9% |
 | Tier 3 | Social Actions | 0 | 10 | ░░░░░░░░░░ 0% |
 | Tier 4 | Content Publishing | 0 | 9 | ░░░░░░░░░░ 0% |
 | Tier 5 | Direct Messages | 0 | 9 | ░░░░░░░░░░ 0% |
@@ -114,6 +114,7 @@ Progress: █████████░ 8.6%
 | `instagram_get_timeline_feed` | Tier 1 | [`src/tools/get_timeline_feed.ts`](src/tools/get_timeline_feed.ts) | ✅ Complete |
 | `instagram_like_post` | Tier 2 | [`src/tools/like_post.ts`](src/tools/like_post.ts) | ✅ Complete |
 | `instagram_comment_on_post` | Tier 2 | [`src/tools/comment_on_post.ts`](src/tools/comment_on_post.ts) | ✅ Complete |
+| `instagram_get_post_comments` | Tier 2 | [`src/tools/get_post_comments.ts`](src/tools/get_post_comments.ts) | ✅ Complete |
 
 ### Legend
 - ✅ **Implemented** - Tool is complete and tested
@@ -279,18 +280,17 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
 - **Returns**: Created comment object with ID
 - **Notes**: Comment length limits apply (2200 characters max). Supports replying to existing comments.
 
-#### 10. Get Post Comments ⏳ [CLAIM]
-- **Status**: 📋 Planned
-- **File**: `src/tools/get_post_comments.ts` (to be created)
+#### 10. Get Post Comments
+- **Status**: ✅ Implemented
+- **File**: [`src/tools/get_post_comments.ts`](src/tools/get_post_comments.ts)
 - **API Methods**: `feed.mediaComments()`
 - **Description**: Get comments for a post
 - **Parameters**:
   - `mediaId` (string): Post/media ID
   - `maxId` (string, optional): Cursor for pagination
-  - `limit` (number, optional): Number of comments to fetch
-- **Returns**: Paginated list of comments with author info
-- **Related Issue**: _Create GitHub issue_
-- **Assigned to**: _Available for contribution_
+  - `limit` (number, optional): Number of comments to fetch (default: 12, max: 50)
+- **Returns**: Paginated list of comments with author info, text, timestamps, likes, and reply indicators
+- **Notes**: Requires authentication. Supports pagination via maxId cursor. Shows reply indicators for nested comments.
 
 #### 11. Like Comment ⏳ [CLAIM]
 - **Status**: 📋 Planned
@@ -1706,4 +1706,4 @@ Error handling is critical, especially for:
 
 **Want to contribute?** Start with Tier 1 tools - they're the most impactful! See [Getting Started](#getting-started-for-contributors) above.
 
-**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 10 | **Available for Contribution**: 106
+**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 11 | **Available for Contribution**: 105

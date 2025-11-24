@@ -13,6 +13,7 @@ import { GetCurrentUserProfileTool } from "./get_current_user_profile.js";
 import { GetUserPostsTool } from "./get_user_posts.js";
 import { LikePostTool } from "./like_post.js";
 import { CommentOnPostTool } from "./comment_on_post.js";
+import { GetPostCommentsTool } from "./get_post_comments.js";
 import { GetPostDetailsTool } from "./get_post_details.js";
 import { GetUserStoriesTool } from "./get_user_stories.js";
 import { GetTimelineFeedTool } from "./get_timeline_feed.js";
@@ -29,6 +30,7 @@ const tools: BaseTool[] = [
   new GetUserPostsTool(),
   new LikePostTool(),
   new CommentOnPostTool(),
+  new GetPostCommentsTool(),
   new GetPostDetailsTool(),
   new GetUserStoriesTool(),
   new GetTimelineFeedTool(),
