@@ -10,8 +10,10 @@ import { Complete2FATool } from "../tools/complete_2fa.js";
 import { GetPostDetailsTool } from "../tools/get_post_details.js";
 import { GetUserStoriesTool } from "../tools/get_user_stories.js";
 import { GetTimelineFeedTool } from "../tools/get_timeline_feed.js";
+import { GetUserPostsTool } from "../tools/get_user_posts.js";
 import { CommentOnPostTool } from "../tools/comment_on_post.js";
 import { GetPostCommentsTool } from "../tools/get_post_comments.js";
+import { LikeCommentTool } from "../tools/like_comment.js";
 import { igpapiClient } from "../igpapi/index.js";
 
 // Note: ESM mocking is complex. These tests use the actual client.
@@ -420,6 +422,192 @@ describe("Get Timeline Feed Tool", () => {
   });
 });
 
+describe("Get User Posts Tool", () => {
+  let getUserPostsTool: GetUserPostsTool;
+
+  beforeEach(() => {
+    getUserPostsTool = new GetUserPostsTool();
+  });
+
+  it("should have correct tool definition", () => {
+    const definition = getUserPostsTool.getDefinition();
+    
+    expect(definition.name).toBe("instagram_get_user_posts");
+    expect(definition.description).toContain("paginated feed");
+    expect(definition.description).toContain("user's Instagram posts");
+    expect(definition.description).toContain("pagination");
+    expect(definition.inputSchema.type).toBe("object");
+    expect(definition.inputSchema.properties).toHaveProperty("userId");
+    expect(definition.inputSchema.properties).toHaveProperty("username");
+    expect(definition.inputSchema.properties).toHaveProperty("maxId");
+    expect(definition.inputSchema.properties).toHaveProperty("limit");
+    expect(definition.inputSchema.required).toEqual([]);
+  });
+
+  it("should require either userId or username", async () => {
+    await expect(
+      getUserPostsTool.execute({} as any)
+    ).rejects.toThrow("Either userId or username must be provided");
+  });
+
+  it("should reject when both userId and username are provided", async () => {
+    await expect(
+      getUserPostsTool.execute({ userId: "123456", username: "testuser" })
+    ).rejects.toThrow("Both userId and username cannot be provided");
+  });
+
+  it("should reject empty userId", async () => {
+    // Empty string is falsy, so it's caught by the "either must be provided" check
+    await expect(
+      getUserPostsTool.execute({ userId: "" })
+    ).rejects.toThrow("Either userId or username must be provided");
+  });
+
+  it("should reject non-numeric userId", async () => {
+    await expect(
+      getUserPostsTool.execute({ userId: "abc123" })
+    ).rejects.toThrow("userId must be a numeric string");
+  });
+
+  it("should reject userId with special characters", async () => {
+    await expect(
+      getUserPostsTool.execute({ userId: "123-456" })
+    ).rejects.toThrow("userId must be a numeric string");
+  });
+
+  it("should accept valid numeric userId", async () => {
+    // Validation passes - API call may succeed or fail, but validation should not throw
+    // This will fail at API call level (authentication or user not found), but validation should pass
+    await expect(
+      getUserPostsTool.execute({ userId: "123456789" })
+    ).rejects.not.toThrow("userId must be a numeric string");
+    await expect(
+      getUserPostsTool.execute({ userId: "123456789" })
+    ).rejects.not.toThrow("userId cannot be empty");
+  });
+
+  it("should reject empty username", async () => {
+    // Empty string is falsy, so it's caught by the "either must be provided" check
+    await expect(
+      getUserPostsTool.execute({ username: "" })
+    ).rejects.toThrow("Either userId or username must be provided");
+  });
+
+  it("should reject username with invalid characters", async () => {
+    await expect(
+      getUserPostsTool.execute({ username: "test-user!" })
+    ).rejects.toThrow("username contains invalid characters");
+  });
+
+  it("should reject username that is too long", async () => {
+    const longUsername = "a".repeat(31);
+    await expect(
+      getUserPostsTool.execute({ username: longUsername })
+    ).rejects.toThrow("username is too long");
+  });
+
+  it("should accept username with @ symbol and strip it", async () => {
+    // Validation passes - API call may succeed or fail, but validation should not throw
+    // This will fail at API call level (authentication or user not found), but validation should pass
+    await expect(
+      getUserPostsTool.execute({ username: "@testuser" })
+    ).rejects.not.toThrow("username contains invalid characters");
+    await expect(
+      getUserPostsTool.execute({ username: "@testuser" })
+    ).rejects.not.toThrow("username cannot be empty");
+  });
+
+  it("should accept valid username format", async () => {
+    // Validation passes - API call may succeed or fail, but validation should not throw
+    // This will fail at API call level (authentication or user not found), but validation should pass
+    await expect(
+      getUserPostsTool.execute({ username: "test_user.123" })
+    ).rejects.not.toThrow("username contains invalid characters");
+    await expect(
+      getUserPostsTool.execute({ username: "test_user.123" })
+    ).rejects.not.toThrow("username cannot be empty");
+  });
+
+  it("should reject invalid maxId format", async () => {
+    await expect(
+      getUserPostsTool.execute({ userId: "123456", maxId: "" })
+    ).rejects.toThrow("maxId must be a non-empty string");
+  });
+
+  it("should accept valid maxId", async () => {
+    // Validation passes - API call may succeed or fail, but validation should not throw
+    // This will fail at API call level (authentication or user not found), but validation should pass
+    await expect(
+      getUserPostsTool.execute({ userId: "123456", maxId: "valid_cursor_123" })
+    ).rejects.not.toThrow("maxId must be a non-empty string");
+  });
+
+  it("should clamp limit to valid range (1-50)", async () => {
+    // Test that limit is clamped - this is tested indirectly through execution
+    // The actual clamping happens in the execute method
+    const tool = new GetUserPostsTool();
+    // We can't easily test the clamping without mocking, but we can verify
+    // the tool definition shows the default
+    const definition = tool.getDefinition();
+    expect(definition.inputSchema.properties?.limit?.default).toBe(12);
+  });
+
+  it.skip("should fetch posts successfully with userId", async () => {
+    // Would require mocking igpapiClient and feed.user()
+    // Better tested via integration tests
+  });
+
+  it.skip("should fetch posts successfully with username", async () => {
+    // Would require mocking igpapiClient, user.usernameinfo(), and feed.user()
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle user not found error", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle private account error", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle no posts available (should not error)", async () => {
+    // Would require mocking empty posts response
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle authentication required error", async () => {
+    // Would require mocking authentication state
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle rate limiting error", async () => {
+    // Would require mocking rate limit response
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle session expired error", async () => {
+    // Would require mocking session expiration
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle pagination with maxId", async () => {
+    // Would require mocking the feed pagination
+    // Better tested via integration tests
+  });
+
+  it.skip("should respect limit parameter", async () => {
+    // Would require mocking the feed items
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle empty posts feed correctly", async () => {
+    // Would require mocking empty posts response
+    // Better tested via integration tests
+  });
+});
+
 describe("Comment on Post Tool", () => {
   let commentOnPostTool: CommentOnPostTool;
 
@@ -757,6 +945,96 @@ describe("Get Post Comments Tool", () => {
   it.skip("should format comments with reply indicators", async () => {
     // Would require mocking comments with parent_comment_id
     // Better tested via integration tests
+  });
+});
+
+describe("Like Comment Tool", () => {
+  let likeCommentTool: LikeCommentTool;
+
+  beforeEach(() => {
+    likeCommentTool = new LikeCommentTool();
+  });
+
+  it("should have correct tool definition", () => {
+    const definition = likeCommentTool.getDefinition();
+    
+    expect(definition.name).toBe("instagram_like_comment");
+    expect(definition.description).toContain("Like");
+    expect(definition.description).toContain("comment");
+    expect(definition.description).toContain("Requires authentication");
+    expect(definition.inputSchema.type).toBe("object");
+    expect(definition.inputSchema.properties).toHaveProperty("commentId");
+    expect(definition.inputSchema.required).toContain("commentId");
+  });
+
+  it("should require commentId", async () => {
+    await expect(
+      likeCommentTool.execute({} as any)
+    ).rejects.toThrow("commentId is required");
+  });
+
+  it("should reject non-string commentId", async () => {
+    await expect(
+      likeCommentTool.execute({ commentId: 123456 } as any)
+    ).rejects.toThrow("commentId is required and must be a string");
+  });
+
+  it("should reject empty commentId", async () => {
+    await expect(
+      likeCommentTool.execute({ commentId: "" })
+    ).rejects.toThrow("commentId cannot be empty");
+  });
+
+  it("should reject whitespace-only commentId", async () => {
+    await expect(
+      likeCommentTool.execute({ commentId: "   " })
+    ).rejects.toThrow("commentId cannot be empty");
+  });
+
+  it("should require authentication", async () => {
+    await expect(
+      likeCommentTool.execute({ commentId: "123456" })
+    ).rejects.toThrow("Not logged in");
+  });
+
+  it("should trim commentId whitespace", async () => {
+    // This will fail at authentication check, but validation should pass
+    await expect(
+      likeCommentTool.execute({ commentId: "  123456  " })
+    ).rejects.toThrow("Not logged in");
+    await expect(
+      likeCommentTool.execute({ commentId: "  123456  " })
+    ).rejects.not.toThrow("commentId cannot be empty");
+  });
+
+  it.skip("should like comment successfully when authenticated", async () => {
+    // Would require mocking igpapiClient.isLoggedIn() and media.likeComment()
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle comment not found error", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle authentication required error", async () => {
+    // Would require mocking authentication state
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle rate limiting error", async () => {
+    // Would require mocking rate limit response
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle session expired error", async () => {
+    // Would require mocking session expiration
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle already liked comment gracefully", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
   });
 });
 

@@ -1,6 +1,6 @@
 # Instagram MCP Tools Implementation Plan
 
-> **Status**: 11 of 116 tools implemented (9.5%) | Last updated: 2024
+> **Status**: 13 of 116 tools implemented (11.2%) | Last updated: 2024
 
 ## Quick Links
 
@@ -76,10 +76,10 @@ When implementing a new tool, follow this checklist:
 
 ### Overall Progress
 
-**Implemented**: 11 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 105 tools 📋
+**Implemented**: 13 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 103 tools 📋
 
 ```
-Progress: ██████████░ 9.5%
+Progress: ██████████░ 11.2%
 ```
 
 ### Progress by Tier
@@ -87,8 +87,8 @@ Progress: ██████████░ 9.5%
 | Tier | Category | Implemented | Total | Progress |
 |------|----------|------------|-------|----------|
 | Auth | Authentication | 3 | 3 | ██████████ 100% |
-| Tier 1 | Core Profile & Content Viewing | 5 | 6 | █████████░ 83.3% |
-| Tier 2 | Engagement Actions | 3 | 7 | █████░░░░░ 42.9% |
+| Tier 1 | Core Profile & Content Viewing | 6 | 6 | ██████████ 100% |
+| Tier 2 | Engagement Actions | 4 | 7 | ██████░░░░ 57.1% |
 | Tier 3 | Social Actions | 0 | 10 | ░░░░░░░░░░ 0% |
 | Tier 4 | Content Publishing | 0 | 9 | ░░░░░░░░░░ 0% |
 | Tier 5 | Direct Messages | 0 | 9 | ░░░░░░░░░░ 0% |
@@ -111,8 +111,10 @@ Progress: ██████████░ 9.5%
 | `instagram_get_current_user_profile` | Tier 1 | [`src/tools/get_current_user_profile.ts`](src/tools/get_current_user_profile.ts) | ✅ Complete |
 | `instagram_get_post_details` | Tier 1 | [`src/tools/get_post_details.ts`](src/tools/get_post_details.ts) | ✅ Complete |
 | `instagram_get_user_stories` | Tier 1 | [`src/tools/get_user_stories.ts`](src/tools/get_user_stories.ts) | ✅ Complete |
+| `instagram_get_user_posts` | Tier 1 | [`src/tools/get_user_posts.ts`](src/tools/get_user_posts.ts) | ✅ Complete |
 | `instagram_get_timeline_feed` | Tier 1 | [`src/tools/get_timeline_feed.ts`](src/tools/get_timeline_feed.ts) | ✅ Complete |
 | `instagram_like_post` | Tier 2 | [`src/tools/like_post.ts`](src/tools/like_post.ts) | ✅ Complete |
+| `instagram_like_comment` | Tier 2 | [`src/tools/like_comment.ts`](src/tools/like_comment.ts) | ✅ Complete |
 | `instagram_comment_on_post` | Tier 2 | [`src/tools/comment_on_post.ts`](src/tools/comment_on_post.ts) | ✅ Complete |
 | `instagram_get_post_comments` | Tier 2 | [`src/tools/get_post_comments.ts`](src/tools/get_post_comments.ts) | ✅ Complete |
 
@@ -183,21 +185,21 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
 - **Returns**: Complete account details for logged-in user
 - **Notes**: Requires authentication
 
-#### 3. Get User Posts Feed ⏳ [CLAIM]
-- **Status**: 📋 Planned
-- **File**: `src/tools/get_user_posts.ts` (to be created)
+#### 3. Get User Posts Feed
+- **Status**: ✅ Implemented
+- **File**: [`src/tools/get_user_posts.ts`](src/tools/get_user_posts.ts)
 - **API Methods**: `feed.user()`
 - **Description**: Get paginated feed of a user's posts
 - **Parameters**:
-  - `userId` (string): User ID to get posts from
+  - `userId` (string, optional): User ID to get posts from
+  - `username` (string, optional): Instagram username (alternative to userId)
   - `maxId` (string, optional): Cursor for pagination
-  - `limit` (number, optional): Number of posts to fetch (default: 12)
+  - `limit` (number, optional): Number of posts to fetch (default: 12, max: 50)
 - **Returns**: Array of posts with:
   - media URLs, captions, likes count, comments count
   - post ID, timestamp, media type
-- **Notes**: Supports pagination via maxId cursor
-- **Related Issue**: _Create GitHub issue_
-- **Assigned to**: _Available for contribution_
+  - author information, location (if available)
+- **Notes**: Supports pagination via maxId cursor. Supports both userId and username parameters (either one must be provided, but not both).
 
 #### 4. Get Post Details
 - **Status**: ✅ Implemented
@@ -292,16 +294,15 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
 - **Returns**: Paginated list of comments with author info, text, timestamps, likes, and reply indicators
 - **Notes**: Requires authentication. Supports pagination via maxId cursor. Shows reply indicators for nested comments.
 
-#### 11. Like Comment ⏳ [CLAIM]
-- **Status**: 📋 Planned
-- **File**: `src/tools/like_comment.ts` (to be created)
+#### 11. Like Comment
+- **Status**: ✅ Implemented
+- **File**: [`src/tools/like_comment.ts`](src/tools/like_comment.ts)
 - **API Methods**: `media.likeComment`
-- **Description**: Like a comment
+- **Description**: Like an Instagram comment by comment ID
 - **Parameters**:
   - `commentId` (string): Comment ID to like
-- **Returns**: Success status
-- **Related Issue**: _Create GitHub issue_
-- **Assigned to**: _Available for contribution_
+- **Returns**: Success status with comment ID
+- **Notes**: Requires authentication. Handles "already liked" case gracefully.
 
 #### 12. Unlike Comment ⏳ [CLAIM]
 - **Status**: 📋 Planned

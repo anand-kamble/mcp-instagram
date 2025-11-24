@@ -12,6 +12,7 @@ import { GetUserProfileTool } from "./get_user_profile.js";
 import { GetCurrentUserProfileTool } from "./get_current_user_profile.js";
 import { GetUserPostsTool } from "./get_user_posts.js";
 import { LikePostTool } from "./like_post.js";
+import { LikeCommentTool } from "./like_comment.js";
 import { CommentOnPostTool } from "./comment_on_post.js";
 import { GetPostCommentsTool } from "./get_post_comments.js";
 import { GetPostDetailsTool } from "./get_post_details.js";
@@ -29,6 +30,7 @@ const tools: BaseTool[] = [
   new GetCurrentUserProfileTool(),
   new GetUserPostsTool(),
   new LikePostTool(),
+  new LikeCommentTool(),
   new CommentOnPostTool(),
   new GetPostCommentsTool(),
   new GetPostDetailsTool(),
