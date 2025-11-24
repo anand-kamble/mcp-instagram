@@ -479,12 +479,15 @@ describe("Get User Posts Tool", () => {
   it("should accept valid numeric userId", async () => {
     // Validation passes - API call may succeed or fail, but validation should not throw
     // This will fail at API call level (authentication or user not found), but validation should pass
-    await expect(
-      getUserPostsTool.execute({ userId: "123456789" })
-    ).rejects.not.toThrow("userId must be a numeric string");
-    await expect(
-      getUserPostsTool.execute({ userId: "123456789" })
-    ).rejects.not.toThrow("userId cannot be empty");
+    try {
+      await getUserPostsTool.execute({ userId: "123456789" });
+      // If it resolves, validation passed (which is what we're testing)
+    } catch (error: any) {
+      // If it rejects, make sure it's not a validation error
+      const errorMessage = error?.message || String(error);
+      expect(errorMessage).not.toContain("userId must be a numeric string");
+      expect(errorMessage).not.toContain("userId cannot be empty");
+    }
   });
 
   it("should reject empty username", async () => {
