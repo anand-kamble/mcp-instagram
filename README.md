@@ -5,6 +5,14 @@
 MCP (Model Context Protocol) server for Instagram integration.
 
 
+## Features
+
+- **Comprehensive Access**: View user profiles, timelines, stories, and detailed post information.
+- **Smart Engagement**: Like posts, comments, and follow users directly from your MCP client.
+- **Search & Discovery**: Powerful search capabilities to find accounts and explore content.
+- **Secure Authentication**: Robust login handling with support for Two-Factor Authentication (2FA).
+- **Developer Ready**: Seamless integration with Claude Desktop, Cursor, and other MCP-compatible tools.
+
 ## Installation for MCP Clients
 
 This MCP server can be used with MCP-compatible clients like Claude Desktop and Cursor IDE. Follow the instructions below to configure the server in your client.
