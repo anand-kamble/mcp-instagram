@@ -541,9 +541,14 @@ describe("Get User Posts Tool", () => {
   it("should accept valid maxId", async () => {
     // Validation passes - API call may succeed or fail, but validation should not throw
     // This will fail at API call level (authentication or user not found), but validation should pass
-    await expect(
-      getUserPostsTool.execute({ userId: "123456", maxId: "valid_cursor_123" })
-    ).rejects.not.toThrow("maxId must be a non-empty string");
+    try {
+      await getUserPostsTool.execute({ userId: "123456", maxId: "valid_cursor_123" });
+      // If it resolves, validation passed (which is what we're testing)
+    } catch (error: any) {
+      // If it rejects, make sure it's not a validation error
+      const errorMessage = error?.message || String(error);
+      expect(errorMessage).not.toContain("maxId must be a non-empty string");
+    }
   });
 
   it("should clamp limit to valid range (1-50)", async () => {
