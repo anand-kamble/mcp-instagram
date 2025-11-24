@@ -1,6 +1,6 @@
 # Instagram MCP Tools Implementation Plan
 
-> **Status**: 13 of 116 tools implemented (11.2%) | Last updated: 2024
+> **Status**: 14 of 116 tools implemented (12.1%) | Last updated: 2024
 
 ## Quick Links
 
@@ -76,10 +76,10 @@ When implementing a new tool, follow this checklist:
 
 ### Overall Progress
 
-**Implemented**: 13 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 103 tools 📋
+**Implemented**: 14 tools ✅ | **In Progress**: 0 tools 🚧 | **Planned**: 102 tools 📋
 
 ```
-Progress: ██████████░ 11.2%
+Progress: ██████████░ 12.1%
 ```
 
 ### Progress by Tier
@@ -89,7 +89,7 @@ Progress: ██████████░ 11.2%
 | Auth | Authentication | 3 | 3 | ██████████ 100% |
 | Tier 1 | Core Profile & Content Viewing | 6 | 6 | ██████████ 100% |
 | Tier 2 | Engagement Actions | 4 | 7 | ██████░░░░ 57.1% |
-| Tier 3 | Social Actions | 0 | 10 | ░░░░░░░░░░ 0% |
+| Tier 3 | Social Actions | 1 | 10 | ██░░░░░░░░ 10% |
 | Tier 4 | Content Publishing | 0 | 9 | ░░░░░░░░░░ 0% |
 | Tier 5 | Direct Messages | 0 | 9 | ░░░░░░░░░░ 0% |
 | Tier 6 | Search & Discovery | 0 | 7 | ░░░░░░░░░░ 0% |
@@ -117,6 +117,7 @@ Progress: ██████████░ 11.2%
 | `instagram_like_comment` | Tier 2 | [`src/tools/like_comment.ts`](src/tools/like_comment.ts) | ✅ Complete |
 | `instagram_comment_on_post` | Tier 2 | [`src/tools/comment_on_post.ts`](src/tools/comment_on_post.ts) | ✅ Complete |
 | `instagram_get_post_comments` | Tier 2 | [`src/tools/get_post_comments.ts`](src/tools/get_post_comments.ts) | ✅ Complete |
+| `instagram_follow_user` | Tier 3 | [`src/tools/follow_user.ts`](src/tools/follow_user.ts) | ✅ Complete |
 
 ### Legend
 - ✅ **Implemented** - Tool is complete and tested
@@ -332,17 +333,15 @@ After examining the `instagram-private-api` library (v1.46.1), I've identified a
 
 ### TIER 3: Social Actions (High Priority)
 
-#### 14. Follow User ⏳ [CLAIM]
-- **Status**: 📋 Planned
-- **File**: `src/tools/follow_user.ts` (to be created)
+#### 14. Follow User
+- **Status**: ✅ Implemented
+- **File**: [`src/tools/follow_user.ts`](src/tools/follow_user.ts)
 - **API Methods**: `friendship.create`
 - **Description**: Follow a user
 - **Parameters**:
   - `userId` (string): User ID to follow
 - **Returns**: Friendship status
 - **Notes**: May require approval for private accounts
-- **Related Issue**: _Create GitHub issue_
-- **Assigned to**: _Available for contribution_
 
 #### 15. Unfollow User ⏳ [CLAIM]
 - **Status**: 📋 Planned
@@ -1707,4 +1706,4 @@ Error handling is critical, especially for:
 
 **Want to contribute?** Start with Tier 1 tools - they're the most impactful! See [Getting Started](#getting-started-for-contributors) above.
 
-**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 11 | **Available for Contribution**: 105
+**Last Updated**: 2024 | **Total Tools**: 116 | **Implemented**: 14 | **Available for Contribution**: 102

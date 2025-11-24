@@ -118,13 +118,30 @@ If you've cloned the repository locally, you can use the absolute path instead:
 ### Verifying Installation
 
 After restarting your MCP client, you should see the Instagram MCP server in the list of available servers. You can verify it's working by asking the AI assistant to use Instagram tools like:
-- `instagram_login` - Login to Instagram
-- `instagram_logout` - Logout from Instagram
-- `instagram_search_accounts` - Search for Instagram accounts
-- and many more...
----
 
-> **⚠️ This project is currently under active development. Features may change, and the API is not yet stable. Use at your own risk.**
+**Authentication:**
+- `instagram_login` - Login to Instagram account
+- `instagram_complete_2fa` - Complete two-factor authentication
+- `instagram_logout` - Logout from Instagram
+
+**Profile & Content Viewing:**
+- `instagram_search_accounts` - Search for Instagram accounts
+- `instagram_get_user_profile` - Get user profile information by ID or username
+- `instagram_get_current_user_profile` - Get authenticated user's own profile
+- `instagram_get_user_posts` - Get paginated feed of a user's posts
+- `instagram_get_post_details` - Get detailed information about a specific post
+- `instagram_get_user_stories` - Get active stories from a user
+- `instagram_get_timeline_feed` - Get home feed (posts from accounts you follow)
+
+**Engagement Actions:**
+- `instagram_like_post` - Like a post or reel
+- `instagram_like_comment` - Like a comment
+- `instagram_comment_on_post` - Add a comment to a post or reply to a comment
+- `instagram_get_post_comments` - Get comments for a post
+
+**Social Actions:**
+- `instagram_follow_user` - Follow an Instagram user
+---
 
 
 ## ⚠️ Legal Disclaimer and Risks

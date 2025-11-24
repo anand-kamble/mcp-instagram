@@ -14,6 +14,7 @@ import { GetUserPostsTool } from "../tools/get_user_posts.js";
 import { CommentOnPostTool } from "../tools/comment_on_post.js";
 import { GetPostCommentsTool } from "../tools/get_post_comments.js";
 import { LikeCommentTool } from "../tools/like_comment.js";
+import { FollowUserTool } from "../tools/follow_user.js";
 import { igpapiClient } from "../igpapi/index.js";
 
 // Note: ESM mocking is complex. These tests use the actual client.
@@ -1034,6 +1035,101 @@ describe("Like Comment Tool", () => {
 
   it.skip("should handle already liked comment gracefully", async () => {
     // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+});
+
+describe("Follow User Tool", () => {
+  let followUserTool: FollowUserTool;
+
+  beforeEach(() => {
+    followUserTool = new FollowUserTool();
+  });
+
+  it("should have correct tool definition", () => {
+    const definition = followUserTool.getDefinition();
+    
+    expect(definition.name).toBe("instagram_follow_user");
+    expect(definition.description).toContain("Follow");
+    expect(definition.description).toContain("user");
+    expect(definition.description).toContain("Requires authentication");
+    expect(definition.inputSchema.type).toBe("object");
+    expect(definition.inputSchema.properties).toHaveProperty("userId");
+    expect(definition.inputSchema.required).toContain("userId");
+  });
+
+  it("should require userId", async () => {
+    await expect(
+      followUserTool.execute({} as any)
+    ).rejects.toThrow("userId is required");
+  });
+
+  it("should reject non-string userId", async () => {
+    await expect(
+      followUserTool.execute({ userId: 123456 } as any)
+    ).rejects.toThrow("userId is required and must be a string");
+  });
+
+  it("should reject empty userId", async () => {
+    await expect(
+      followUserTool.execute({ userId: "" })
+    ).rejects.toThrow("userId cannot be empty");
+  });
+
+  it("should reject whitespace-only userId", async () => {
+    await expect(
+      followUserTool.execute({ userId: "   " })
+    ).rejects.toThrow("userId cannot be empty");
+  });
+
+  it("should require authentication", async () => {
+    await expect(
+      followUserTool.execute({ userId: "123456" })
+    ).rejects.toThrow("Not logged in");
+  });
+
+  it("should trim userId whitespace", async () => {
+    // This will fail at authentication check, but validation should pass
+    await expect(
+      followUserTool.execute({ userId: "  123456  " })
+    ).rejects.toThrow("Not logged in");
+    await expect(
+      followUserTool.execute({ userId: "  123456  " })
+    ).rejects.not.toThrow("userId cannot be empty");
+  });
+
+  it.skip("should follow user successfully when authenticated", async () => {
+    // Would require mocking igpapiClient.isLoggedIn() and friendship.create()
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle user not found error", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle authentication required error", async () => {
+    // Would require mocking authentication state
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle rate limiting error", async () => {
+    // Would require mocking rate limit response
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle session expired error", async () => {
+    // Would require mocking session expiration
+    // Better tested via integration tests
+  });
+
+  it.skip("should handle already following user gracefully", async () => {
+    // Would require mocking the API call
+    // The error handling is tested through integration tests
+  });
+
+  it.skip("should handle private account approval requirement", async () => {
+    // Would require mocking the API call with outgoing_request status
     // The error handling is tested through integration tests
   });
 });
