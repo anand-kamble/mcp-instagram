@@ -27,19 +27,19 @@
         },
         {
           "name": "IG_PASSWORD",
-          "description": "Instagram password. Used only to log in; the server keeps the session cookies, not the password.",
+          "description": "Instagram password. Sent only in the login request and never written to disk.",
           "isRequired": false,
           "isSecret": true
         },
         {
           "name": "IG_SESSION_DIR",
-          "description": "Directory for the saved session (default: ~/.config/mcp-instagram, or %APPDATA%\\mcp-instagram on Windows).",
+          "description": "Private directory for the saved session (default: ~/.config/mcp-instagram, or %APPDATA%\\mcp-instagram on Windows).",
           "isRequired": false,
           "format": "filepath"
         },
         {
           "name": "IG_RATE_LIMITS",
-          "description": "JSON overrides for like/comment/follow limits, e.g. {\"like\":{\"perHour\":100}}.",
+          "description": "JSON overrides for like/comment/follow/login limits, e.g. {\"like\":{\"perHour\":100}}.",
           "isRequired": false
         }
       ]

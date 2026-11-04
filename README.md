@@ -181,33 +181,37 @@ All configuration is through environment variables set in your MCP client's serv
 | Variable | Required | Description |
 |---|---|---|
 | `IG_USERNAME` | For login | Instagram username. Every tool except login and logout needs a session, either from these credentials or a saved session. |
-| `IG_PASSWORD` | For login | Instagram password. Used only for the login request; the server keeps the session cookies, not the password. |
-| `IG_SESSION_DIR` | No | Directory for the saved session. Default: `$XDG_CONFIG_HOME/mcp-instagram`, else `~/.config/mcp-instagram` (macOS and Linux), or `%APPDATA%\mcp-instagram` (Windows). |
+| `IG_PASSWORD` | For login | Instagram password. Sent only in the login request and never written to disk; like any environment variable, it stays in the server process's memory. |
+| `IG_SESSION_DIR` | No | Directory for the saved session. Default: `$XDG_CONFIG_HOME/mcp-instagram`, else `~/.config/mcp-instagram` (macOS and Linux), or `%APPDATA%\mcp-instagram` (Windows). Must be owned by you and not writable by other users; the server refuses shared directories such as `/tmp`. |
 | `IG_RATE_LIMITS` | No | JSON overrides for the write-action limits, for example `{"like":{"perHour":100}}`. See [Rate limits](#rate-limits). |
 
 ### Session storage
 
 After a successful login, the server saves the Instagram session (cookies and device identifiers) to `session.json` in the session directory above, so restarts do not require logging in again. Anyone who can read that file can act as your Instagram account, so the server creates the directory with mode `0700` and the file with mode `0600`, and writes it atomically. `instagram_logout` ends the session on Instagram (when Instagram is reachable) and deletes the file.
 
-Versions up to 0.0.6 stored the session in `data/session.json` inside the package directory (under `npx`, that is the npm cache). On first start, the current version moves such a file to the new location and removes the old copy. This happens only when `IG_SESSION_DIR` is not set.
+Versions up to 0.0.6 stored the session in `data/session.json` inside the package directory (under `npx`, that is the npm cache). On first start, the current version moves such a file to the new location and removes the old copy. This happens only when `IG_SESSION_DIR` is not set, and only for the package directory, never the directory your MCP client runs in.
+
+If `IG_USERNAME` is set and the saved session belongs to a different account (for example after switching accounts), the server discards the saved session and logs in again with the configured credentials.
 
 ### Rate limits
 
-Instagram restricts accounts that like, comment or follow in fast bursts. To keep an agent loop from getting the account action-blocked, the server limits write actions per process. When a limit is reached, the tool returns an error saying when to retry, and nothing is sent to Instagram.
+Instagram restricts accounts that like, comment or follow in fast bursts, and locks accounts behind a security checkpoint after repeated password logins. To keep an agent loop from getting the account blocked, the server limits write actions and password logins per process. When a limit is reached, the tool returns an error saying when to retry, and nothing is sent to Instagram.
 
 | Action | Per minute | Per hour | Per day |
 |---|---|---|---|
 | like / unlike (posts and comments) | 10 | 60 | 500 |
 | comment | 3 | 20 | 100 |
 | follow / unfollow | 5 | 30 | 150 |
+| password login (including the automatic login at startup) | 1 | 5 | 10 |
 
-Instagram does not publish its limits, so these defaults are deliberately conservative rather than derived from Instagram's numbers. Override any subset with `IG_RATE_LIMITS`, using the keys `like`, `comment`, `follow` and `perMinute`, `perHour`, `perDay`. Counters are kept in memory and reset when the server restarts.
+Instagram does not publish its limits, so these defaults are deliberately conservative rather than derived from Instagram's numbers. Override any subset with `IG_RATE_LIMITS`, using the keys `like`, `comment`, `follow`, `login` and `perMinute`, `perHour`, `perDay`. Counters are kept in memory and reset when the server restarts.
 
 ### Security Notes
 
 - **Never commit your credentials** to version control. Prefer the Claude Code `${VAR}` or VS Code `inputs` setups above over plain-text passwords in config files.
 - Credentials are never requested from the LLM. They come only from environment variables.
 - The saved session is a credential too; see [Session storage](#session-storage).
+- All Instagram traffic uses verified TLS. The underlying library disables certificate checks by default; this server turns them back on for every request.
 - Two-factor codes are the only thing the server ever asks you for; see [Two-factor authentication](#two-factor-authentication).
 - Text in tool results (captions, comments, bios, usernames) is written by other Instagram users. The server tells the assistant to treat it as data, not instructions, but review write actions the assistant proposes.
 
