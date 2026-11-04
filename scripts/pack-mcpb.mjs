@@ -11,7 +11,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,7 +34,10 @@ function run(command, args, cwd) {
 
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
-for (const entry of ['build', 'package.json', 'yarn.lock', 'README.md', 'LICENSE.md']) {
+// NOTICE carries the license of the ported instagrapi code and must ship with every copy.
+const REQUIRED_IN_BUNDLE = ['manifest.json', 'package.json', 'README.md', 'LICENSE.md', 'NOTICE', 'build/server.js'];
+
+for (const entry of ['build', 'package.json', 'yarn.lock', 'README.md', 'LICENSE.md', 'NOTICE']) {
   cpSync(join(root, entry), join(stage, entry), { recursive: true });
 }
 
@@ -48,4 +52,17 @@ rmSync(join(stage, 'yarn.lock'));
 run('npx', ['-y', MCPB_CLI, 'validate', join(stage, 'manifest.json')], root);
 mkdirSync(dirname(output), { recursive: true });
 run('npx', ['-y', MCPB_CLI, 'pack', stage, output], root);
+
+// Check the packed archive itself, not just the staging directory.
+const unpacked = mkdtempSync(join(tmpdir(), 'mcp-instagram-mcpb-'));
+try {
+  run('npx', ['-y', MCPB_CLI, 'unpack', output, unpacked], root);
+  const missing = REQUIRED_IN_BUNDLE.filter((entry) => !existsSync(join(unpacked, entry)));
+  if (missing.length > 0) {
+    console.error(`The bundle is missing: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+} finally {
+  rmSync(unpacked, { recursive: true, force: true });
+}
 console.log(`Wrote ${output}`);
