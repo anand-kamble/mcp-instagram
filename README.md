@@ -24,7 +24,7 @@ There are two ways to log in. Either way, the session is saved privately and reu
 
 Set `IG_USERNAME` and `IG_PASSWORD`, as in the client examples below. The server logs in the way the current Instagram Android app does: the password is encrypted with Instagram's public key, sent once, and never written to disk.
 
-If the account uses two-factor authentication, or Instagram wants to confirm a login from a new device, Instagram sends a code by email, SMS or authenticator app. Clients that support MCP form elicitation (for example Claude Code in an interactive session) show a form for it; in other clients, the assistant asks you for the code and passes it to `instagram_complete_2fa`. See [Two-factor authentication](#two-factor-authentication).
+If the account uses two-factor authentication, or Instagram wants to confirm a login from a new device, Instagram sends a code by email, SMS or authenticator app. You enter it on a one-time page the server opens on your own machine, so the code never passes through the assistant. See [Two-factor authentication](#two-factor-authentication).
 
 Instagram watches for repeated logins, so the server allows at most one password login per minute (see [Rate limits](#rate-limits)), and a new device may need to be confirmed in the Instagram app the first time.
 
@@ -239,7 +239,7 @@ Instagram does not publish its limits, so these defaults are deliberately conser
 - Credentials are never requested from the LLM. They come only from environment variables.
 - The saved session is a credential too; see [Session storage](#session-storage).
 - All Instagram traffic uses verified TLS. The underlying library disables certificate checks by default; this server turns them back on for every request.
-- Two-factor codes are the only thing the server ever asks you for. Your password or session cookie come only from its configuration.
+- Two-factor codes are the only thing the server ever asks you for, and you type them on a local page, not in the chat. Your password or session cookie come only from its configuration.
 - Text in tool results (captions, comments, bios, usernames) is written by other Instagram users. The server tells the assistant to treat it as data, not instructions, but review write actions the assistant proposes.
 
 ### Verifying Installation
@@ -274,8 +274,8 @@ Every tool except login and logout needs an active session. Paginated tools retu
 
 `instagram_login` takes no arguments and never asks for your password; it uses `IG_USERNAME` and `IG_PASSWORD` (or `IG_SESSION_ID`). If Instagram asks for a verification code, it sends it by email, SMS or authenticator app, and the server says which:
 
-- In clients that support MCP form elicitation (for example Claude Code in an interactive session), a form asks for the code and the login completes when you submit it. A malformed code is asked for again; a code Instagram rejects ends the attempt, and calling `instagram_login` again starts a new one.
-- In other clients, or if you dismiss the form, the assistant asks you for the code in the conversation and calls `instagram_complete_2fa` with it. If you decline the form instead, the login stops and the assistant is told not to ask again.
+- The server opens a one-time page on your own machine (`http://127.0.0.1:<port>/2fa/...`) where you type the code, so it never passes through the MCP client or the assistant. Clients that support MCP URL elicitation (for example Claude Code in an interactive session) offer to open it in your browser; in other clients the assistant gives you the link. The page accepts one code, expires after 10 minutes, and closes when you log out or start a new login. A malformed code can be corrected on the page; a code Instagram rejects ends the attempt, and calling `instagram_login` again starts a new one.
+- If you cannot open the page, tell the assistant the code and it calls `instagram_complete_2fa` with it (the code then passes through the conversation). If you decline the prompt to open the page, the login stops and the assistant is told not to ask again.
 
 If a login is already waiting for a code (for example from the automatic login at startup), `instagram_login` reuses it rather than sending your password again. With `IG_SESSION_ID`, two-factor authentication already happened in the browser, so no code is needed.
 
