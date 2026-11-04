@@ -4,6 +4,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
+import { getConfig } from "../config/index.js";
 import { igpapiClient } from "../igpapi/index.js";
 import { InstagramApi } from "../instagram/api.js";
 import { waitForStartup, withTimeout } from "./shared/instagram.js";
@@ -41,7 +42,9 @@ export function registerLogout(server: McpServer): void {
       title: "Log out of Instagram",
       description:
         "Log out of Instagram: end the session on Instagram's side (best effort) and delete the saved session " +
-        "file. After this, instagram_login must be called before any other Instagram tool works.",
+        "file. After this, instagram_login must be called before any other Instagram tool works. If the session " +
+        "came from IG_SESSION_ID (a browser cookie), this also logs out that browser session, and IG_SESSION_ID " +
+        "stops working until it is replaced with a fresh cookie.",
       inputSchema: z.object({}).strict(),
       annotations: {
         readOnlyHint: false,
@@ -64,11 +67,16 @@ export function registerLogout(server: McpServer): void {
         );
       }
       const who = username ? ` (@${username})` : "";
-      return textResult(
-        revoked
-          ? `Logged out of Instagram${who}. The session was ended on Instagram and the saved session file was deleted.`
-          : `Logged out of Instagram${who}. The saved session file was deleted, but Instagram could not be reached to end the session there.`
-      );
+      const summary = revoked
+        ? `Logged out of Instagram${who}. The session was ended on Instagram and the saved session file was deleted.`
+        : `Logged out of Instagram${who}. The saved session file was deleted, but Instagram could not be reached to end the session there.`;
+      // Ending the session server-side also ends the browser session the
+      // IG_SESSION_ID cookie was copied from.
+      const browserNote =
+        revoked && getConfig().igpapi?.sessionId
+          ? " This also logged out the browser session IG_SESSION_ID came from: copy a fresh `sessionid` cookie into IG_SESSION_ID and restart the server to log in again."
+          : "";
+      return textResult(summary + browserNote);
     }
   );
 }

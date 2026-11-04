@@ -392,6 +392,13 @@ describe.each(ERAS)("instagram_complete_2fa and instagram_logout on the %s era",
     expect(account.loggedIn).toBe(false);
   });
 
+  it("warns that logging out also ends the browser session behind IG_SESSION_ID", async () => {
+    fakeAccount({ loggedIn: true });
+    setConfig({ igpapi: { sessionId: "1000%3Avalid%3A1" } });
+    const result = await call(connection, "instagram_logout");
+    expect(textOf(result)).toContain("also logged out the browser session");
+  });
+
   it("still deletes the local session when Instagram cannot be reached", async () => {
     const account = fakeAccount({ loggedIn: true, revoke: jest.fn(async () => Promise.reject(new Error("offline"))) });
     const result = await call(connection, "instagram_logout");
