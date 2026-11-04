@@ -7,3 +7,5 @@ export * from "./sessionFormat.js";
 export * from "./encoding.js";
 export * from "./transport.js";
 export * from "./usdid.js";
+export * from "./bloks.js";
+export * from "./caa.js";

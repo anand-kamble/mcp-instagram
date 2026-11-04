@@ -9,12 +9,13 @@
 
 import { getConfig } from "../config/index.js";
 import {
+  CaaLogin,
   IgLoginRequiredError,
   IgNoSessionError,
   IgUserHasLoggedOutError,
   InstagramClient,
 } from "../instagram/index.js";
-import type { SessionState } from "../instagram/index.js";
+import type { PendingTwoFactor, SessionState } from "../instagram/index.js";
 import type { TwoFactorAuthInfo } from "../types/index.js";
 import { consumeRateLimit, formatDuration, RateLimitError } from "../utils/rateLimit.js";
 import { deleteSession, loadSession, saveSession } from "./session.js";
@@ -37,7 +38,10 @@ export function isInvalidSessionError(error: unknown): boolean {
 /** Message of the error thrown by a login that a logout overtook. */
 export const LOGIN_CANCELLED_MESSAGE = "Login was cancelled by a logout.";
 
-/** Thrown by login() while password login is unavailable. */
+/**
+ * Explanation for when Instagram refuses password login from this server.
+ * Kept for callers that surface it; login() itself now runs the CAA flow.
+ */
 export const PASSWORD_LOGIN_UNAVAILABLE_MESSAGE =
   "Password login is not available: Instagram no longer accepts the login request this server used to send. " +
   "Log in to instagram.com in a browser, copy the value of its `sessionid` cookie, set it as IG_SESSION_ID " +
@@ -77,6 +81,8 @@ interface CurrentUserResponse {
 export interface IGPAPIClientOptions {
   /** Builds the InstagramClient; tests inject one with a fake fetch. */
   createClient?: (session?: SessionState) => InstagramClient;
+  /** Delay before paced login steps, as the app waits (default 1000 ms; tests use 0). */
+  loginPaceMs?: number;
 }
 
 export class IGPAPIClient {
@@ -86,6 +92,9 @@ export class IGPAPIClient {
   private loggedIn: boolean = false;
   private twoFactorInfo: TwoFactorAuthInfo | null = null;
   private readonly createClient: (session?: SessionState) => InstagramClient;
+  private readonly loginPaceMs: number;
+  /** A password login waiting for its verification code. */
+  private pendingLogin: { caa: CaaLogin; pending: PendingTwoFactor; username: string } | null = null;
   /**
    * Incremented by logout() and reset(). A restore or login that was in
    * flight when it changed abandons its result instead of resurrecting a
@@ -100,6 +109,7 @@ export class IGPAPIClient {
 
   constructor(options: IGPAPIClientOptions = {}) {
     this.createClient = options.createClient ?? ((session) => new InstagramClient({ session }));
+    this.loginPaceMs = options.loginPaceMs ?? 1000;
   }
 
   private recordLoginFailure(error: unknown): void {
@@ -294,33 +304,111 @@ export class IGPAPIClient {
   }
 
   /**
-   * Login to Instagram with username and password.
-   *
-   * Instagram now rejects the login flow this server implemented (HTTP 404 /
-   * needs_upgrade), so this throws until the newer flow is ported. Use
-   * loginWithSessionId (IG_SESSION_ID) instead.
-   * @throws {TwoFactorAuthInfo} If 2FA is required, throws an object with 2FA info
+   * Login to Instagram with username and password, through Instagram's
+   * current CAA login flow. The password is submitted once and not kept.
+   * @throws {TwoFactorAuthInfo} If a verification code is needed; finish with completeTwoFactorLogin()
    */
-  async login(_username: string, _password: string): Promise<void> {
+  async login(username: string, password: string): Promise<void> {
     if (!this.client) {
       await this.initialize();
     }
-    const error = new Error(PASSWORD_LOGIN_UNAVAILABLE_MESSAGE);
-    this.recordLoginFailure(error);
-    throw error;
+    const client = this.client;
+    if (!client) {
+      throw new Error("Failed to initialize the Instagram client");
+    }
+    const epoch = this.authEpoch;
+    // Every call is a fresh password login (and possibly a code sent to the
+    // user). Instagram checkpoints accounts that do this repeatedly.
+    this.consumeLoginBudget();
+    this.pendingLogin = null;
+    this.twoFactorInfo = null;
+    this.loggedIn = false;
+    client.clearSession();
+
+    const caa = new CaaLogin(client, this.loginPaceMs);
+    let start;
+    try {
+      start = await caa.start(username, password);
+    } catch (error) {
+      if (epoch === this.authEpoch) {
+        this.recordLoginFailure(error);
+      }
+      throw error;
+    }
+    this.assertCurrent(epoch);
+
+    if (start.status === "two_factor") {
+      const { pending } = start;
+      this.pendingLogin = { caa, pending, username };
+      this.twoFactorInfo = {
+        username,
+        twoFactorIdentifier: pending.route,
+        verificationMethod: pending.method === "sms" ? "1" : "0",
+        totpTwoFactorOn: pending.method === "totp",
+        delivery: pending.delivery,
+      };
+      throw this.twoFactorInfo;
+    }
+    await this.finishPasswordLogin(client, epoch, username);
   }
 
   /**
    * Complete 2FA login with verification code
    */
-  async completeTwoFactorLogin(_verificationCode: string): Promise<void> {
+  async completeTwoFactorLogin(verificationCode: string): Promise<void> {
     if (!this.client) {
       throw new Error("Instagram client not initialized. Please call login first.");
     }
-    if (!this.twoFactorInfo) {
+    const pendingLogin = this.pendingLogin;
+    if (!this.twoFactorInfo || !pendingLogin) {
       throw new Error("No pending 2FA login. Please call login first.");
     }
-    throw new Error(PASSWORD_LOGIN_UNAVAILABLE_MESSAGE);
+    const client = this.client;
+    const epoch = this.authEpoch;
+    try {
+      await pendingLogin.caa.submitCode(pendingLogin.pending, verificationCode);
+    } catch (error) {
+      if (epoch === this.authEpoch) {
+        // Clear the pending login so the user can start over.
+        this.pendingLogin = null;
+        this.twoFactorInfo = null;
+        this.recordLoginFailure(error);
+      }
+      throw error;
+    }
+    this.assertCurrent(epoch);
+    this.pendingLogin = null;
+    await this.finishPasswordLogin(client, epoch, pendingLogin.username);
+  }
+
+  /** Confirms the new session with Instagram, checks the account and saves it. */
+  private async finishPasswordLogin(client: InstagramClient, epoch: number, loginName: string): Promise<void> {
+    let username = client.username;
+    try {
+      const response = await client.request<CurrentUserResponse>({ path: "accounts/current_user/", query: { edit: true } });
+      this.assertCurrent(epoch);
+      if (typeof response.user?.username === "string") username = response.user.username;
+      client.setAccount(String(response.user?.pk ?? client.userId ?? ""), username);
+    } catch (error) {
+      if (error instanceof Error && error.message === LOGIN_CANCELLED_MESSAGE) throw error;
+      if (isInvalidSessionError(error)) {
+        client.clearSession();
+        this.recordLoginFailure(error);
+        throw error;
+      }
+      // The login itself returned a session; a failed confirmation (e.g. a
+      // network error) does not invalidate it.
+      console.error(
+        "[mcp-instagram] Logged in, but could not confirm the account:",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    const expected = configuredUsername();
+    if (expected && username && normalizeUsername(username) !== expected) {
+      client.clearSession();
+      throw new Error(`Logged in as @${username}, not IG_USERNAME (@${expected}).`);
+    }
+    await this.commitLogin(client, epoch, username ?? loginName);
   }
 
   /**
@@ -402,6 +490,7 @@ export class IGPAPIClient {
     this.initialized = false;
     this.loggedIn = false;
     this.twoFactorInfo = null;
+    this.pendingLogin = null;
     void client?.close().catch(() => undefined);
   }
 }

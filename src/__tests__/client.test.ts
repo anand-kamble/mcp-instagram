@@ -12,7 +12,6 @@ import {
   IGPAPIClient,
   isInvalidSessionError,
   LOGIN_CANCELLED_MESSAGE,
-  PASSWORD_LOGIN_UNAVAILABLE_MESSAGE,
   userIdFromSessionId,
 } from "../igpapi/client.js";
 import { loadSession, saveSession, sessionExists } from "../igpapi/session.js";
@@ -326,11 +325,14 @@ describe("IGPAPIClient", () => {
     });
   });
 
-  it("explains that password login is unavailable and points to IG_SESSION_ID", async () => {
-    const { manager, calls } = managerWith(() => json({}));
-    await expect(manager.login("alice", "secret")).rejects.toThrow(PASSWORD_LOGIN_UNAVAILABLE_MESSAGE);
-    expect(PASSWORD_LOGIN_UNAVAILABLE_MESSAGE).toContain("IG_SESSION_ID");
-    expect(calls).toEqual([]);
+  it("rate limits password logins before contacting Instagram", async () => {
+    delete process.env.IG_RATE_LIMITS;
+    resetRateLimiter();
+    const { manager, calls } = managerWith(() => json({ status: "fail", message: "Page not found" }, 404));
+    await expect(manager.login("alice", "secret")).rejects.toThrow();
+    const before = calls.length;
+    await expect(manager.login("alice", "secret")).rejects.toBeInstanceOf(RateLimitError);
+    expect(calls.length).toBe(before);
   });
 
   it("getCurrentUser returns the raw user of the session", async () => {
