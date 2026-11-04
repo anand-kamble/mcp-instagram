@@ -1,135 +1,45 @@
-# Testing the MCP Server
-
-You can test your MCP server in two ways:
-
-## Method 1: Manual Test Script (Quick & Simple)
-
-The simplest way to test without installing Jest:
+# Testing
 
 ```bash
-npm run test:manual
+yarn install
+yarn test            # builds with tsc (pretest), then runs jest
+yarn test:watch
+yarn test:coverage
 ```
 
-This will:
-1. Build the project
-2. Start the server
-3. Run basic integration tests
-4. Show you the JSON-RPC communication
+The suite needs no Instagram account and makes no network requests. Node.js 22 or newer is required.
 
-You can also run it directly:
+## What the tests cover
+
+| File | What it tests |
+|---|---|
+| `src/__tests__/server.test.ts` | Server identity (name, version from package.json, title, instructions) and `tools/list` metadata: fixed tool order, titles, annotations, output schemas and required parameters. Runs on both protocol eras. |
+| `src/__tests__/auth.test.ts` | `instagram_login`, `instagram_complete_2fa` and `instagram_logout`, including the two-factor code prompt via elicitation (accept, malformed code, rejected code, dismissed prompt, client without elicitation). Runs on both protocol eras. |
+| `src/__tests__/tools.test.ts` | Input validation, the login requirement, structured output and pagination of the read tools, Instagram error translation, and the write tools' calls into instagram-private-api. |
+| `src/__tests__/stdio.test.ts` | Spawns `build/server.js` and connects to it over stdio as a 2025-era client, a 2026-07-28 client and an auto-negotiating client. |
+| `src/__tests__/session.test.ts`, `client.test.ts`, `rateLimit.test.ts` | Session file storage and migration, client session handling, and the write-action rate limiter. |
+
+"Both protocol eras" means a 2025-era client (`initialize` handshake) and a 2026-07-28 client (stateless requests with a per-request `_meta` envelope). One server process serves both through `serveStdio`.
+
+## How the in-process tests work
+
+`src/__tests__/helpers.ts` connects a real `Client` from `@modelcontextprotocol/client` to `createServer()` over an `InMemoryTransport`, through the same `serveStdio` era dispatch the binary uses. Instagram is replaced by stubbing methods on the `igpapiClient` singleton:
+
+```ts
+stubInstagram({ feed: { user: () => fakeFeed([{ items: [post], nextMaxId: "cursor-2" }]) } });
+const result = await call(connection, "instagram_get_user_posts", { userId: "7" });
+expect(result.structuredContent).toMatchObject({ nextMaxId: "cursor-2" });
+```
+
+The SDK validates `structuredContent` against each tool's `outputSchema`, so a fake response that maps to the wrong shape fails the test.
+
+## Trying the server by hand
+
+Use the MCP Inspector against the built server:
+
 ```bash
-npm run build
-node build/test-manual.js
+yarn build
+npx @modelcontextprotocol/inspector node build/server.js
 ```
 
-## Method 2: Jest Test Suite (Full Testing)
-
-For comprehensive testing with Jest:
-
-### Setup
-
-1. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-2. **Build the project:**
-   ```bash
-   npm run build
-   ```
-
-### Running Tests
-
-```bash
-# Run all tests
-npm test
-
-# Run tests in watch mode (auto-rerun on changes)
-npm run test:watch
-
-# Run tests with coverage report
-npm run test:coverage
-```
-
-### Test Structure
-
-- **`src/__tests__/mcp-client.ts`** - MCP client utility for communicating with server
-- **`src/__tests__/server.test.ts`** - Integration tests (spawns actual server)
-- **`src/__tests__/tools.test.ts`** - Unit tests for individual tools (mocked)
-
-### What Gets Tested
-
-#### Integration Tests (`server.test.ts`)
-- Server startup and connection
-- Tool listing
-- Tool execution
-- Error handling
-- Input validation
-
-#### Unit Tests (`tools.test.ts`)
-- Tool definitions
-- Parameter validation
-- 2FA flow handling
-- Error scenarios
-
-## How It Works
-
-The test client (`MCPTestClient`) communicates with your server using JSON-RPC 2.0 over stdio:
-
-1. **Spawns the server process** - Runs `node build/server.js`
-2. **Sends JSON-RPC requests** - Writes to server's stdin
-3. **Receives responses** - Reads from server's stdout
-4. **Handles timeouts** - Prevents hanging tests
-
-## Example: Writing Your Own Test
-
-```typescript
-import { MCPTestClient } from "./mcp-client.js";
-
-const client = new MCPTestClient();
-await client.start();
-
-// List tools
-const tools = await client.listTools();
-console.log("Available tools:", tools.map(t => t.name));
-
-// Call a tool
-const result = await client.callTool("instagram_login", {
-  username: "test_user",
-  password: "test_pass",
-});
-
-console.log("Result:", result);
-
-await client.stop();
-```
-
-## Testing Without Real Instagram Credentials
-
-The tests are designed to work without real Instagram credentials:
-- Integration tests use invalid credentials (expected to fail gracefully)
-- Unit tests use mocks to avoid actual API calls
-- Session files are cleaned up before/after tests
-
-## Troubleshooting
-
-### "Cannot find module" errors
-Run `npm install` to install Jest and dependencies.
-
-### Tests timeout
-- Check that the server builds successfully (`npm run build`)
-- Ensure Node.js is in your PATH
-- Increase timeout in test files if needed
-
-### Server won't start
-- Verify `build/server.js` exists
-- Check that all dependencies are installed
-- Look at server stderr output for errors
-
-## Next Steps
-
-1. Add more test cases for your specific tools
-2. Test edge cases and error scenarios
-3. Add integration tests with real credentials (optional, be careful!)
-4. Set up CI/CD to run tests automatically
-
+Set `IG_USERNAME` and `IG_PASSWORD` in the Inspector's environment panel to call the Instagram tools against a real account. Use a secondary account, because the tools act on Instagram for real.
