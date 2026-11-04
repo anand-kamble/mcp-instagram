@@ -1,59 +1,47 @@
 /**
- * IGPAPI Client Manager
- * Handles initialization and state management for Instagram Private API
+ * Session manager for the Instagram client.
+ *
+ * Owns the single InstagramClient the tools use: restores the saved session,
+ * logs in, and logs out. Instagram traffic goes through src/instagram (our own
+ * private-API client); this module keeps the public methods the tools and the
+ * startup code call.
  */
 
-import {
-  IgApiClient,
-  IgCookieNotFoundError,
-  IgLoginRequiredError,
-  IgLoginTwoFactorRequiredError,
-  IgUserHasLoggedOutError,
-} from "instagram-private-api";
 import { getConfig } from "../config/index.js";
+import {
+  IgLoginRequiredError,
+  IgNoSessionError,
+  IgUserHasLoggedOutError,
+  InstagramClient,
+} from "../instagram/index.js";
+import type { SessionState } from "../instagram/index.js";
 import type { TwoFactorAuthInfo } from "../types/index.js";
 import { consumeRateLimit, formatDuration, RateLimitError } from "../utils/rateLimit.js";
-import { loadSession, saveSession, deleteSession } from "./session.js";
+import { deleteSession, loadSession, saveSession } from "./session.js";
 
 /**
- * True when Instagram rejected the restored session itself (login_required,
- * user_has_logged_out, or a missing session cookie). Other failures
- * (network errors, rate limits, 5xx) say nothing about the session, so it is
- * kept: discarding it forces a fresh password login, which is what tends to
- * trigger Instagram's suspicious-login checkpoints.
+ * True when Instagram rejected the session itself (login_required,
+ * user_has_logged_out) or there is no session. Other failures (network
+ * errors, rate limits, 5xx) say nothing about the session, so it is kept:
+ * discarding it forces a fresh login, which tends to trigger Instagram's
+ * suspicious-login checkpoints.
  */
 export function isInvalidSessionError(error: unknown): boolean {
   return (
     error instanceof IgLoginRequiredError ||
     error instanceof IgUserHasLoggedOutError ||
-    error instanceof IgCookieNotFoundError
+    error instanceof IgNoSessionError
   );
 }
 
-/**
- * Timeout for every Instagram HTTP request. instagram-private-api sets none,
- * and the underlying `request` library waits indefinitely on a stalled
- * connection, which would hang tool calls (and startup) with it.
- */
-export const REQUEST_TIMEOUT_MS = 30_000;
+/** Message of the error thrown by a login that a logout overtook. */
+export const LOGIN_CANCELLED_MESSAGE = "Login was cancelled by a logout.";
 
-/**
- * Creates an IgApiClient that verifies TLS certificates and times out.
- *
- * instagram-private-api passes `strictSSL: false` on every request, and its
- * built-in options take precedence over `request.defaults`, so certificate
- * checks can only be turned back on per request. Without them, anyone on the
- * network path could read the session cookies, or swap the password
- * encryption key Instagram sends and recover the password.
- */
-export function createIgClient(): IgApiClient {
-  const client = new IgApiClient();
-  client.request.defaults.timeout = REQUEST_TIMEOUT_MS;
-  const send = client.request.send.bind(client.request);
-  client.request.send = ((options, onlyCheckHttpStatus) =>
-    send({ ...options, strictSSL: true }, onlyCheckHttpStatus)) as typeof client.request.send;
-  return client;
-}
+/** Thrown by login() while password login is unavailable. */
+export const PASSWORD_LOGIN_UNAVAILABLE_MESSAGE =
+  "Password login is not available: Instagram no longer accepts the login request this server used to send. " +
+  "Log in to instagram.com in a browser, copy the value of its `sessionid` cookie, set it as IG_SESSION_ID " +
+  "in the MCP server configuration, and restart the server.";
 
 function normalizeUsername(value: string): string {
   return value.trim().replace(/^@/, "").toLowerCase();
@@ -76,24 +64,28 @@ function configuredUsername(): string | undefined {
   return name;
 }
 
-/** Username recorded in the session's `ds_user` cookie, if present. */
-function sessionCookieUsername(client: IgApiClient): string | undefined {
-  try {
-    return normalizeUsername(client.state.cookieUsername);
-  } catch {
-    return undefined;
-  }
+/** The numeric user id a sessionid cookie starts with ("<id>%3A..." or "<id>:..."). */
+export function userIdFromSessionId(sessionid: string): string | undefined {
+  const match = /^(\d+)(?:%3A|:)/i.exec(sessionid);
+  return match && sessionid.length >= 30 ? match[1] : undefined;
 }
 
-/** Message of the error thrown by a login that a logout overtook. */
-export const LOGIN_CANCELLED_MESSAGE = "Login was cancelled by a logout.";
+interface CurrentUserResponse {
+  user?: { pk?: number | string; pk_id?: string; username?: string; full_name?: string; [key: string]: unknown };
+}
+
+export interface IGPAPIClientOptions {
+  /** Builds the InstagramClient; tests inject one with a fake fetch. */
+  createClient?: (session?: SessionState) => InstagramClient;
+}
 
 export class IGPAPIClient {
-  private client: IgApiClient | null = null;
+  private client: InstagramClient | null = null;
   private username: string | null = null;
   private initialized: boolean = false;
   private loggedIn: boolean = false;
   private twoFactorInfo: TwoFactorAuthInfo | null = null;
+  private readonly createClient: (session?: SessionState) => InstagramClient;
   /**
    * Incremented by logout() and reset(). A restore or login that was in
    * flight when it changed abandons its result instead of resurrecting a
@@ -102,9 +94,13 @@ export class IGPAPIClient {
   private authEpoch = 0;
   /**
    * Why the last login attempt failed, so a later rate-limit rejection can say
-   * so instead of hiding it (e.g. the startup auto-login used the budget).
+   * so instead of hiding it (e.g. the startup login used the budget).
    */
   private lastLoginFailure: { message: string; at: number } | null = null;
+
+  constructor(options: IGPAPIClientOptions = {}) {
+    this.createClient = options.createClient ?? ((session) => new InstagramClient({ session }));
+  }
 
   private recordLoginFailure(error: unknown): void {
     this.lastLoginFailure = {
@@ -130,8 +126,42 @@ export class IGPAPIClient {
     }
   }
 
+  /** Throws if a logout happened since `epoch` was captured. */
+  private assertCurrent(epoch: number): void {
+    if (epoch !== this.authEpoch) {
+      throw new Error(LOGIN_CANCELLED_MESSAGE);
+    }
+  }
+
+  /** Saves the client's session and marks it logged in, unless a logout overtook the login. */
+  private async commitLogin(client: InstagramClient, epoch: number, username: string): Promise<void> {
+    this.assertCurrent(epoch);
+    await saveSession(client.serialize());
+    if (epoch !== this.authEpoch) {
+      // A logout ran while the file was being written.
+      await deleteSession();
+      throw new Error(LOGIN_CANCELLED_MESSAGE);
+    }
+    this.username = username;
+    this.loggedIn = true;
+    this.twoFactorInfo = null;
+    this.lastLoginFailure = null;
+  }
+
+  /** Discards a restored session that belongs to another account. */
+  private async discardSession(epoch: number, client: InstagramClient, reason: string): Promise<void> {
+    console.error(`[mcp-instagram] ${reason}; discarding the saved session.`);
+    await deleteSession();
+    if (epoch === this.authEpoch) {
+      client.clearSession();
+      this.loggedIn = false;
+      this.username = null;
+    }
+  }
+
   /**
-   * Initialize the IGPAPI client instance
+   * Creates the client and restores the saved session. If IG_SESSION_ID is
+   * set and differs from the saved session, the configured cookie is used.
    */
   async initialize(): Promise<void> {
     if (this.client) {
@@ -139,36 +169,50 @@ export class IGPAPIClient {
     }
 
     const epoch = this.authEpoch;
-    const client = createIgClient();
-    this.client = client;
     this.initialized = true;
+    const saved = await loadSession();
+    if (epoch !== this.authEpoch) {
+      return;
+    }
+    const client = this.createClient(saved ?? undefined);
+    this.client = client;
 
-    // Try to restore session
-    const sessionLoaded = await loadSession(client);
-    if (!sessionLoaded || epoch !== this.authEpoch) {
+    const configuredSessionId = getConfig().igpapi?.sessionId;
+    if (configuredSessionId && saved?.authorization?.sessionid !== configuredSessionId) {
+      try {
+        await this.loginWithSessionId(configuredSessionId);
+      } catch (error) {
+        if (error instanceof Error && error.message !== LOGIN_CANCELLED_MESSAGE) {
+          console.error("[mcp-instagram] Could not use IG_SESSION_ID:", error.message);
+        }
+      }
+      return;
+    }
+
+    if (!saved || !client.hasSession) {
       return;
     }
 
     // A saved session for a different account than IG_USERNAME (switched
     // accounts, or a planted file) must not silently become the active one.
     const expected = configuredUsername();
-    const cookieUser = sessionCookieUsername(client);
-    if (expected && cookieUser && cookieUser !== expected) {
-      await this.discardRestoredSession(epoch, cookieUser, expected);
+    if (expected && saved.username && normalizeUsername(saved.username) !== expected) {
+      await this.discardSession(epoch, client, `The saved session belongs to @${saved.username}, not IG_USERNAME (@${expected})`);
       return;
     }
 
     try {
-      // Verify session is still valid
-      const user = await client.account.currentUser();
+      const user = (await client.request<CurrentUserResponse>({ path: "accounts/current_user/", query: { edit: true } })).user;
       if (epoch !== this.authEpoch) {
         return;
       }
-      if (expected && user.username && normalizeUsername(user.username) !== expected) {
-        await this.discardRestoredSession(epoch, normalizeUsername(user.username), expected);
+      const username = typeof user?.username === "string" ? user.username : undefined;
+      if (expected && username && normalizeUsername(username) !== expected) {
+        await this.discardSession(epoch, client, `The saved session belongs to @${username}, not IG_USERNAME (@${expected})`);
         return;
       }
-      this.username = user.username ?? null;
+      client.setAccount(String(user?.pk ?? client.userId ?? ""), username);
+      this.username = username ?? saved.username ?? null;
       this.loggedIn = true;
     } catch (error) {
       if (epoch !== this.authEpoch) {
@@ -176,146 +220,100 @@ export class IGPAPIClient {
       }
       if (isInvalidSessionError(error)) {
         await deleteSession();
+        client.clearSession();
         this.loggedIn = false;
       } else {
-        // Could not verify (e.g. offline). Keep the restored cookies; if they
-        // turn out to be invalid, the login tool re-authenticates.
+        // Could not verify (e.g. offline). Keep the restored session; if it
+        // turns out to be invalid, tools report it and login re-authenticates.
         console.error(
           "[mcp-instagram] Could not verify the saved session; keeping it:",
           error instanceof Error ? error.message : String(error)
         );
+        this.username = saved.username ?? null;
         this.loggedIn = true;
       }
     }
   }
 
-  /** Deletes a restored session that belongs to another account and starts from a clean client. */
-  private async discardRestoredSession(epoch: number, found: string, expected: string): Promise<void> {
-    console.error(
-      `[mcp-instagram] The saved session belongs to @${found}, not IG_USERNAME (@${expected}); discarding it.`
-    );
-    await deleteSession();
-    if (epoch === this.authEpoch) {
-      this.client = createIgClient();
-      this.loggedIn = false;
-      this.username = null;
-    }
-  }
-
   /**
-   * Save `client`'s session and mark it logged in, unless a logout happened
-   * since `epoch` was captured; then undo the save and throw.
+   * Logs in with a `sessionid` cookie from a browser session: no password is
+   * sent. Verifies it with Instagram and saves the session.
    */
-  private async commitLogin(client: IgApiClient, epoch: number, username: string): Promise<void> {
-    if (epoch !== this.authEpoch) {
-      throw new Error(LOGIN_CANCELLED_MESSAGE);
+  async loginWithSessionId(sessionid: string): Promise<void> {
+    const trimmed = sessionid.trim();
+    const userId = userIdFromSessionId(trimmed);
+    if (!userId) {
+      throw new Error(
+        "IG_SESSION_ID does not look like an Instagram sessionid cookie: it should start with your numeric user id, " +
+          'followed by "%3A" or ":".'
+      );
     }
-    await saveSession(client);
-    if (epoch !== this.authEpoch) {
-      // A logout ran while the file was being written.
-      await deleteSession();
-      throw new Error(LOGIN_CANCELLED_MESSAGE);
+    if (!this.client) {
+      await this.initialize();
+      const current = this.client as InstagramClient | null;
+      if (this.loggedIn && current?.serialize().authorization?.sessionid === trimmed) {
+        return; // initialize() already imported this cookie.
+      }
     }
-    // Keep only the username; the password is not retained after login.
-    this.username = username;
-    this.loggedIn = true;
-    this.twoFactorInfo = null; // Clear any pending 2FA info
-    this.lastLoginFailure = null;
+    const client = this.client;
+    if (!client) {
+      throw new Error("Failed to initialize the Instagram client");
+    }
+    const epoch = this.authEpoch;
+    this.consumeLoginBudget();
+
+    client.clearSession();
+    client.setAuthorization({ ds_user_id: userId, sessionid: trimmed, should_use_header_over_cookies: true });
+    this.loggedIn = false;
+    try {
+      const response = await client.request<CurrentUserResponse>({ path: "accounts/current_user/", query: { edit: true } });
+      this.assertCurrent(epoch);
+      const username = typeof response.user?.username === "string" ? response.user.username : undefined;
+      const expected = configuredUsername();
+      if (expected && username && normalizeUsername(username) !== expected) {
+        throw new Error(`IG_SESSION_ID belongs to @${username}, not IG_USERNAME (@${expected}).`);
+      }
+      client.setAccount(String(response.user?.pk ?? userId), username);
+      await this.commitLogin(client, epoch, username ?? userId);
+    } catch (error) {
+      if (epoch === this.authEpoch) {
+        client.clearSession();
+        if (!(error instanceof Error && error.message === LOGIN_CANCELLED_MESSAGE)) {
+          this.recordLoginFailure(error);
+        }
+      }
+      throw error;
+    }
   }
 
   /**
-   * Login to Instagram with username and password
+   * Login to Instagram with username and password.
+   *
+   * Instagram now rejects the login flow this server implemented (HTTP 404 /
+   * needs_upgrade), so this throws until the newer flow is ported. Use
+   * loginWithSessionId (IG_SESSION_ID) instead.
    * @throws {TwoFactorAuthInfo} If 2FA is required, throws an object with 2FA info
    */
-  async login(username: string, password: string): Promise<void> {
+  async login(_username: string, _password: string): Promise<void> {
     if (!this.client) {
       await this.initialize();
     }
-
-    const client = this.client;
-    if (!client) {
-      throw new Error("Failed to initialize IGPAPI client");
-    }
-    const epoch = this.authEpoch;
-
-    // Every call is a fresh password login (and possibly an SMS). Instagram
-    // checkpoints accounts that do this repeatedly, so cap it like writes.
-    this.consumeLoginBudget();
-
-    // Generate device based on username
-    client.state.generateDevice(username);
-
-    let loggedInAs: string | undefined;
-    try {
-      // Perform login
-      const user = await client.account.login(username, password);
-      loggedInAs = user?.username;
-    } catch (error: unknown) {
-      if (epoch !== this.authEpoch) {
-        throw new Error(LOGIN_CANCELLED_MESSAGE);
-      }
-      // Check if 2FA is required
-      if (error instanceof IgLoginTwoFactorRequiredError) {
-        const twoFactorInfo = error.response?.body?.two_factor_info;
-
-        if (twoFactorInfo) {
-          const verificationMethod = twoFactorInfo.totp_two_factor_on ? "0" : "1"; // '0' = TOTP, '1' = SMS
-
-          this.twoFactorInfo = {
-            username: twoFactorInfo.username || username,
-            twoFactorIdentifier: twoFactorInfo.two_factor_identifier,
-            verificationMethod,
-            totpTwoFactorOn: twoFactorInfo.totp_two_factor_on || false,
-          };
-
-          // Throw the 2FA info so the caller can handle it
-          throw this.twoFactorInfo;
-        }
-      }
-
-      // Re-throw other errors
-      this.recordLoginFailure(error);
-      throw error;
-    }
-
-    await this.commitLogin(client, epoch, loggedInAs || username);
+    const error = new Error(PASSWORD_LOGIN_UNAVAILABLE_MESSAGE);
+    this.recordLoginFailure(error);
+    throw error;
   }
 
   /**
    * Complete 2FA login with verification code
    */
-  async completeTwoFactorLogin(verificationCode: string): Promise<void> {
-    const client = this.client;
-    if (!client) {
-      throw new Error("IGPAPI client not initialized. Please call login first.");
+  async completeTwoFactorLogin(_verificationCode: string): Promise<void> {
+    if (!this.client) {
+      throw new Error("Instagram client not initialized. Please call login first.");
     }
-
-    const pending = this.twoFactorInfo;
-    if (!pending) {
+    if (!this.twoFactorInfo) {
       throw new Error("No pending 2FA login. Please call login first.");
     }
-    const epoch = this.authEpoch;
-
-    try {
-      // Complete 2FA login
-      await client.account.twoFactorLogin({
-        username: pending.username,
-        verificationCode,
-        twoFactorIdentifier: pending.twoFactorIdentifier,
-        verificationMethod: pending.verificationMethod,
-        trustThisDevice: "1", // Trust this device
-      });
-    } catch (error) {
-      if (epoch !== this.authEpoch) {
-        throw new Error(LOGIN_CANCELLED_MESSAGE);
-      }
-      // Clear 2FA info on error so user can retry
-      this.twoFactorInfo = null;
-      this.recordLoginFailure(error);
-      throw error;
-    }
-
-    await this.commitLogin(client, epoch, pending.username);
+    throw new Error(PASSWORD_LOGIN_UNAVAILABLE_MESSAGE);
   }
 
   /**
@@ -333,11 +331,11 @@ export class IGPAPIClient {
   }
 
   /**
-   * Get the IGPAPI client instance
+   * The Instagram client, holding the restored session if there is one.
    */
-  getClient(): IgApiClient {
+  getClient(): InstagramClient {
     if (!this.initialized || !this.client) {
-      throw new Error("IGPAPI client not initialized. Call initialize() first.");
+      throw new Error("Instagram client not initialized. Call initialize() first.");
     }
     return this.client;
   }
@@ -364,17 +362,22 @@ export class IGPAPIClient {
   }
 
   /**
-   * Get current logged in user info
+   * The logged-in account (raw `user` from accounts/current_user).
    */
-  async getCurrentUser() {
+  async getCurrentUser(): Promise<NonNullable<CurrentUserResponse["user"]>> {
     if (!this.client || !this.loggedIn) {
       throw new Error("Not logged in. Please login first.");
     }
-    return await this.client.account.currentUser();
+    const response = await this.client.request<CurrentUserResponse>({ path: "accounts/current_user/", query: { edit: true } });
+    if (!response.user) {
+      throw new Error("Instagram returned no user for the current session.");
+    }
+    return response.user;
   }
 
   /**
-   * Logout and clear session
+   * Clears the local session (memory and file). Ending the session on
+   * Instagram's side is the logout tool's job.
    */
   async logout(): Promise<void> {
     this.reset();
@@ -386,14 +389,15 @@ export class IGPAPIClient {
    */
   reset(): void {
     this.authEpoch++;
+    const client = this.client;
     this.client = null;
     this.username = null;
     this.initialized = false;
     this.loggedIn = false;
     this.twoFactorInfo = null;
+    void client?.close().catch(() => undefined);
   }
 }
 
 // Singleton instance
 export const igpapiClient = new IGPAPIClient();
-

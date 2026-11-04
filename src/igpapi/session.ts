@@ -16,7 +16,8 @@ import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { IgApiClient } from "instagram-private-api";
+import { sessionStateFromJson } from "../instagram/sessionFormat.js";
+import type { SessionState } from "../instagram/types.js";
 
 const APP_DIR_NAME = "mcp-instagram";
 const SESSION_FILE_NAME = "session.json";
@@ -111,7 +112,7 @@ async function writePrivateFileAtomic(file: string, data: string): Promise<void>
   }
 }
 
-/** True if `data` looks like a serialized instagram-private-api state, not some other app's file. */
+/** True if `data` looks like a session file this server wrote (either format), not some other app's file. */
 function looksLikeIgSession(data: string): boolean {
   try {
     const parsed: unknown = JSON.parse(data);
@@ -119,7 +120,7 @@ function looksLikeIgSession(data: string): boolean {
       typeof parsed === "object" &&
       parsed !== null &&
       "cookies" in parsed &&
-      ("deviceString" in parsed || "constants" in parsed)
+      ("deviceString" in parsed || "constants" in parsed || ("version" in parsed && "device" in parsed))
     );
   } catch {
     return false;
@@ -171,24 +172,23 @@ export async function migrateLegacySession(
 }
 
 /**
- * Save IGPAPI session state to file
+ * Save the session state to the session file (0600, atomic).
  */
-export async function saveSession(ig: IgApiClient): Promise<void> {
+export async function saveSession(state: SessionState): Promise<void> {
   const file = getSessionFilePath();
   try {
     await ensureSessionDir(dirname(file));
-    const serialized = await ig.state.serialize();
-    await writePrivateFileAtomic(file, JSON.stringify(serialized));
+    await writePrivateFileAtomic(file, JSON.stringify(state));
   } catch (error) {
     throw new Error(`Failed to save session: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 /**
- * Load IGPAPI session state from file.
- * Returns false if there is no session or it cannot be parsed.
+ * Load the saved session, converting files written by older versions.
+ * Returns null if there is no session or it cannot be used.
  */
-export async function loadSession(ig: IgApiClient): Promise<boolean> {
+export async function loadSession(): Promise<SessionState | null> {
   await migrateLegacySession();
   const file = getSessionFilePath();
   try {
@@ -199,27 +199,26 @@ export async function loadSession(ig: IgApiClient): Promise<boolean> {
         `[mcp-instagram] Not loading the saved session: ${error instanceof Error ? error.message : String(error)}`
       );
     }
-    return false;
+    return null;
   }
   let raw: string;
   try {
     const stats = await fs.lstat(file);
     if (!stats.isFile() || stats.size > MAX_SESSION_BYTES) {
-      return false;
+      return null;
     }
     raw = await fs.readFile(file, "utf-8");
   } catch {
-    return false;
+    return null;
   }
   // Files written by older versions may be world-readable.
   if (process.platform !== "win32") {
     await fs.chmod(file, FILE_MODE).catch(() => undefined);
   }
   try {
-    await ig.state.deserialize(JSON.parse(raw));
-    return true;
+    return sessionStateFromJson(JSON.parse(raw));
   } catch {
-    return false;
+    return null;
   }
 }
 

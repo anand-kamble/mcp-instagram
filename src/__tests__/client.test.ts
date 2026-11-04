@@ -1,248 +1,325 @@
 /**
- * Unit tests for IGPAPIClient session-validation helpers
+ * Unit tests for the session manager (src/igpapi/client.ts) on top of
+ * InstagramClient, with a fake fetch: restore, IG_SESSION_ID login, account
+ * checks, logout races and the login rate limit.
  */
 
-import {
-  IgCookieNotFoundError,
-  IgLoginRequiredError,
-  IgNetworkError,
-  IgUserHasLoggedOutError,
-} from "instagram-private-api";
-import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { promises as fs } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { IgApiClient } from "instagram-private-api";
 import { setConfig } from "../config/index.js";
 import {
-  createIgClient,
   IGPAPIClient,
   isInvalidSessionError,
   LOGIN_CANCELLED_MESSAGE,
-  REQUEST_TIMEOUT_MS,
+  PASSWORD_LOGIN_UNAVAILABLE_MESSAGE,
+  userIdFromSessionId,
 } from "../igpapi/client.js";
-import { getSessionFilePath, sessionExists } from "../igpapi/session.js";
+import { loadSession, saveSession, sessionExists } from "../igpapi/session.js";
+import {
+  IgLoginRequiredError,
+  IgNetworkError,
+  IgNoSessionError,
+  IgUserHasLoggedOutError,
+  InstagramClient,
+} from "../instagram/index.js";
+import type { SessionState } from "../instagram/index.js";
 import { RateLimitError, resetRateLimiter } from "../utils/rateLimit.js";
 
-function fakeResponse(statusCode: number, message: string) {
-  return {
-    statusCode,
-    statusMessage: "Forbidden",
-    body: { message },
-    request: { method: "GET", uri: { path: "/api/v1/accounts/current_user/" } },
-  } as never;
+const SESSION_ID = "42%3AabcdefghijklmnopQRSTU%3A12%3AAYcdefghijklmnopqrstuvwxyz";
+
+type Handler = (path: string, init: RequestInit) => Promise<Response> | Response;
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status });
+}
+
+/** A session manager whose InstagramClient uses `handler` instead of the network. */
+function managerWith(handler: Handler) {
+  const calls: string[] = [];
+  const fetchImpl = (async (input: URL | string, init?: RequestInit) => {
+    const path = new URL(String(input)).pathname.replace("/api/v1/", "");
+    calls.push(path);
+    return handler(path, init ?? {});
+  }) as unknown as typeof fetch;
+  const manager = new IGPAPIClient({
+    createClient: (session?: SessionState) => new InstagramClient({ session, fetch: fetchImpl }),
+  });
+  return { manager, calls };
+}
+
+const currentUser = (username: string, pk = 42) => () => json({ status: "ok", user: { pk, username } });
+
+function savedSession(username?: string): SessionState {
+  const client = new InstagramClient({ fetch: (async () => json({})) as unknown as typeof fetch });
+  client.setAuthorization({ ds_user_id: "42", sessionid: SESSION_ID, should_use_header_over_cookies: true });
+  client.setAccount("42", username);
+  return client.serialize();
 }
 
 describe("isInvalidSessionError", () => {
-  it("treats login_required, user_has_logged_out and missing cookies as an invalid session", () => {
-    expect(isInvalidSessionError(new IgLoginRequiredError(fakeResponse(403, "login_required")))).toBe(true);
-    expect(isInvalidSessionError(new IgUserHasLoggedOutError(fakeResponse(403, "user_has_logged_out")))).toBe(true);
-    expect(isInvalidSessionError(new IgCookieNotFoundError("ds_user_id"))).toBe(true);
+  const info = { status: 403, path: "x/", body: {} };
+  it("treats login_required, user_has_logged_out and a missing session as invalid", () => {
+    expect(isInvalidSessionError(new IgLoginRequiredError(info))).toBe(true);
+    expect(isInvalidSessionError(new IgUserHasLoggedOutError(info))).toBe(true);
+    expect(isInvalidSessionError(new IgNoSessionError())).toBe(true);
   });
 
   it("keeps the session on network and unknown errors", () => {
-    expect(isInvalidSessionError(new IgNetworkError(new Error("ECONNRESET")))).toBe(false);
+    expect(isInvalidSessionError(new IgNetworkError("ECONNRESET"))).toBe(false);
     expect(isInvalidSessionError(new Error("socket hang up"))).toBe(false);
     expect(isInvalidSessionError("weird")).toBe(false);
   });
 });
 
-describe("createIgClient", () => {
-  it("re-enables TLS certificate checks and sets a timeout on every request", async () => {
-    const ig = createIgClient();
-    let sent: Record<string, unknown> | undefined;
-    (ig.request as unknown as { faultTolerantRequest: (o: Record<string, unknown>) => Promise<never> }).faultTolerantRequest =
-      async (options) => {
-        sent = options;
-        throw new Error("stop before the network");
-      };
-    await expect(ig.request.send({ url: "/api/v1/accounts/current_user/" })).rejects.toThrow("stop before the network");
-    expect(sent?.strictSSL).toBe(true);
-    expect(sent?.timeout).toBe(REQUEST_TIMEOUT_MS);
+describe("userIdFromSessionId", () => {
+  it("reads the numeric user id prefix", () => {
+    expect(userIdFromSessionId(SESSION_ID)).toBe("42");
+    expect(userIdFromSessionId("42:abcdefghijklmnopqrstuvwxyz0123")).toBe("42");
+  });
+
+  it("rejects values that are not sessionid cookies", () => {
+    expect(userIdFromSessionId("abc%3A123")).toBeUndefined();
+    expect(userIdFromSessionId("42%3Ashort")).toBeUndefined();
   });
 });
 
-describe("IGPAPIClient.initialize", () => {
+describe("IGPAPIClient", () => {
   const savedEnv = { IG_SESSION_DIR: process.env.IG_SESSION_DIR, IG_RATE_LIMITS: process.env.IG_RATE_LIMITS };
   let sessionDir: string;
+  const originalError = console.error;
+  let logged: string[];
 
   beforeEach(async () => {
     sessionDir = await fs.mkdtemp(join(tmpdir(), "mcp-instagram-client-"));
     process.env.IG_SESSION_DIR = sessionDir;
-    // These tests log in several times within a minute.
+    // Most tests log in several times within a minute.
     process.env.IG_RATE_LIMITS = '{"login":{"perMinute":100,"perHour":100,"perDay":100}}';
     resetRateLimiter();
+    setConfig({ igpapi: {} });
+    logged = [];
+    console.error = (...args: unknown[]) => {
+      logged.push(args.map(String).join(" "));
+    };
   });
 
   afterEach(async () => {
+    console.error = originalError;
     for (const [key, value] of Object.entries(savedEnv)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
     resetRateLimiter();
     setConfig({ igpapi: {} });
-    jest.restoreAllMocks();
     await fs.rm(sessionDir, { recursive: true, force: true });
   });
 
-  /** Writes a saved session, optionally carrying a ds_user cookie. */
-  async function writeSavedSession(cookieUsername?: string) {
-    const ig = createIgClient();
-    ig.state.generateDevice("seed");
-    if (cookieUsername) {
-      await ig.state.cookieJar.setCookie(
-        `ds_user=${cookieUsername}; Domain=.instagram.com; Path=/`,
-        "https://i.instagram.com/"
+  describe("initialize", () => {
+    it("starts logged out without a saved session or IG_SESSION_ID, and makes no requests", async () => {
+      const { manager, calls } = managerWith(() => json({}));
+      await manager.initialize();
+      expect(manager.isLoggedIn()).toBe(false);
+      expect(manager.getClient().hasSession).toBe(false);
+      expect(calls).toEqual([]);
+    });
+
+    it("restores and verifies a saved session", async () => {
+      await saveSession(savedSession("alice"));
+      const { manager, calls } = managerWith(currentUser("alice"));
+      await manager.initialize();
+      expect(manager.isLoggedIn()).toBe(true);
+      expect(manager.getUsername()).toBe("alice");
+      expect(calls).toEqual(["accounts/current_user/"]);
+    });
+
+    it("deletes a saved session Instagram rejects", async () => {
+      await saveSession(savedSession("alice"));
+      const { manager } = managerWith(() => json({ status: "fail", message: "login_required" }, 403));
+      await manager.initialize();
+      expect(manager.isLoggedIn()).toBe(false);
+      expect(await sessionExists()).toBe(false);
+    });
+
+    it("keeps a saved session it cannot verify because of a network error", async () => {
+      await saveSession(savedSession("alice"));
+      const { manager } = managerWith(() => {
+        throw new TypeError("fetch failed");
+      });
+      await manager.initialize();
+      expect(manager.isLoggedIn()).toBe(true);
+      expect(await sessionExists()).toBe(true);
+      expect(logged.join("\n")).toContain("Could not verify the saved session");
+    });
+
+    it("discards a saved session for another account without contacting Instagram", async () => {
+      await saveSession(savedSession("mallory"));
+      setConfig({ igpapi: { username: "alice" } });
+      const { manager, calls } = managerWith(currentUser("mallory"));
+      await manager.initialize();
+      expect(manager.isLoggedIn()).toBe(false);
+      expect(await sessionExists()).toBe(false);
+      expect(calls).toEqual([]);
+      expect(logged.join("\n")).toContain("belongs to @mallory");
+    });
+
+    it("discards a saved session when Instagram reports another account", async () => {
+      await saveSession(savedSession());
+      setConfig({ igpapi: { username: "@Alice" } });
+      const { manager } = managerWith(currentUser("mallory"));
+      await manager.initialize();
+      expect(manager.isLoggedIn()).toBe(false);
+      expect(await sessionExists()).toBe(false);
+    });
+
+    it("skips the account check when IG_USERNAME is an email or phone number", async () => {
+      for (const login of ["alice@example.com", "15551234567"]) {
+        await saveSession(savedSession("alice_ig"));
+        setConfig({ igpapi: { username: login } });
+        const { manager } = managerWith(currentUser("alice_ig"));
+        await manager.initialize();
+        expect(manager.isLoggedIn()).toBe(true);
+      }
+    });
+
+    it("loads a session file written by instagram-private-api", async () => {
+      await fs.writeFile(
+        join(sessionDir, "session.json"),
+        JSON.stringify({
+          constants: {},
+          deviceString: "26/8.0.0; 480dpi; 1080x1920; samsung; SM-G930F; herolte; samsungexynos8890",
+          uuid: "11111111-1111-4111-8111-111111111111",
+          cookies: JSON.stringify({
+            cookies: [
+              { key: "sessionid", value: SESSION_ID, domain: "instagram.com" },
+              { key: "ds_user_id", value: "42", domain: "instagram.com" },
+            ],
+          }),
+        })
       );
+      let authorization: string | undefined;
+      const { manager } = managerWith((_path, init) => {
+        authorization = (init.headers as Record<string, string>).Authorization;
+        return currentUser("alice")();
+      });
+      await manager.initialize();
+      expect(manager.isLoggedIn()).toBe(true);
+      expect(manager.getClient().device.uuid).toBe("11111111-1111-4111-8111-111111111111");
+      expect(authorization).toMatch(/^Bearer IGT:2:/);
+    });
+
+    it("uses IG_SESSION_ID when it differs from the saved session", async () => {
+      await saveSession({ ...savedSession("alice"), authorization: { ds_user_id: "42", sessionid: "42%3Aold-session-value-xxxxxxxxxx" } });
+      setConfig({ igpapi: { sessionId: SESSION_ID } });
+      const { manager } = managerWith(currentUser("alice"));
+      await manager.initialize();
+      expect(manager.isLoggedIn()).toBe(true);
+      expect((await loadSession())?.authorization?.sessionid).toBe(SESSION_ID);
+    });
+  });
+
+  describe("loginWithSessionId", () => {
+    it("verifies the cookie, records the account and saves the session", async () => {
+      const { manager } = managerWith(currentUser("alice"));
+      await manager.loginWithSessionId(`  ${SESSION_ID}  `);
+      expect(manager.isLoggedIn()).toBe(true);
+      expect(manager.getUsername()).toBe("alice");
+      const saved = await loadSession();
+      expect(saved?.authorization).toEqual({ ds_user_id: "42", sessionid: SESSION_ID, should_use_header_over_cookies: true });
+      expect(saved?.username).toBe("alice");
+    });
+
+    it("rejects values that are not sessionid cookies before contacting Instagram", async () => {
+      const { manager, calls } = managerWith(currentUser("alice"));
+      await expect(manager.loginWithSessionId("not-a-cookie")).rejects.toThrow(/does not look like/);
+      expect(calls).toEqual([]);
+    });
+
+    it("leaves no session behind when Instagram rejects the cookie", async () => {
+      const { manager } = managerWith(() => json({ status: "fail", message: "login_required" }, 403));
+      await expect(manager.loginWithSessionId(SESSION_ID)).rejects.toBeInstanceOf(IgLoginRequiredError);
+      expect(manager.isLoggedIn()).toBe(false);
+      expect(manager.getClient().hasSession).toBe(false);
+      expect(await sessionExists()).toBe(false);
+    });
+
+    it("refuses a cookie for another account than IG_USERNAME", async () => {
+      setConfig({ igpapi: { username: "alice" } });
+      const { manager } = managerWith(currentUser("mallory"));
+      await expect(manager.loginWithSessionId(SESSION_ID)).rejects.toThrow("belongs to @mallory");
+      expect(manager.isLoggedIn()).toBe(false);
+      expect(await sessionExists()).toBe(false);
+    });
+
+    it("names the previous failure when the login budget is used up", async () => {
+      delete process.env.IG_RATE_LIMITS;
+      resetRateLimiter();
+      const { manager } = managerWith(() => json({ status: "fail", message: "Page not found" }, 404));
+      await expect(manager.loginWithSessionId(SESSION_ID)).rejects.toThrow("HTTP 404");
+      const second = manager.loginWithSessionId(SESSION_ID);
+      await expect(second).rejects.toBeInstanceOf(RateLimitError);
+      await expect(second).rejects.toThrow(/previous login attempt \(1s ago\) failed: accounts\/current_user\/ - HTTP 404/);
+    });
+  });
+
+  describe("logout races", () => {
+    function gated() {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { gate, release };
     }
-    await fs.writeFile(getSessionFilePath(), JSON.stringify(await ig.state.serialize()));
-  }
 
-  /** Stubs AccountRepository.currentUser for every IgApiClient. */
-  function stubCurrentUser(username: string) {
-    const proto = Object.getPrototypeOf(createIgClient().account) as { currentUser: () => Promise<unknown> };
-    return jest.spyOn(proto, "currentUser").mockResolvedValue({ username, pk: 1 } as never);
-  }
+    it("abandons a login that a logout overtook", async () => {
+      const { gate, release } = gated();
+      const { manager } = managerWith(async () => {
+        await gate;
+        return currentUser("alice")();
+      });
+      await manager.initialize();
+      const inFlight = manager.loginWithSessionId(SESSION_ID);
+      await manager.logout();
+      release();
 
-  it("discards a saved session whose cookie names another account, without contacting Instagram", async () => {
-    await writeSavedSession("mallory");
-    setConfig({ igpapi: { username: "alice" } });
-    const currentUser = stubCurrentUser("mallory");
-    const errors = jest.spyOn(console, "error").mockImplementation(() => undefined);
-
-    const client = new IGPAPIClient();
-    await client.initialize();
-
-    expect(client.isLoggedIn()).toBe(false);
-    expect(await sessionExists()).toBe(false);
-    expect(currentUser).not.toHaveBeenCalled();
-    expect(String(errors.mock.calls[0]?.[0])).toContain("belongs to @mallory");
-  });
-
-  it("discards a saved session when Instagram reports another account", async () => {
-    await writeSavedSession();
-    setConfig({ igpapi: { username: "@Alice" } });
-    stubCurrentUser("mallory");
-    jest.spyOn(console, "error").mockImplementation(() => undefined);
-
-    const client = new IGPAPIClient();
-    await client.initialize();
-
-    expect(client.isLoggedIn()).toBe(false);
-    expect(await sessionExists()).toBe(false);
-  });
-
-  it("restores a saved session for the configured account", async () => {
-    await writeSavedSession("alice");
-    setConfig({ igpapi: { username: "Alice" } });
-    stubCurrentUser("alice");
-
-    const client = new IGPAPIClient();
-    await client.initialize();
-
-    expect(client.isLoggedIn()).toBe(true);
-    expect(client.getUsername()).toBe("alice");
-    expect(await sessionExists()).toBe(true);
-  });
-
-  it("skips the account check when IG_USERNAME is an email or phone number", async () => {
-    for (const login of ["alice@example.com", "15551234567"]) {
-      await writeSavedSession("alice_ig");
-      setConfig({ igpapi: { username: login } });
-      jest.restoreAllMocks();
-      stubCurrentUser("alice_ig");
-
-      const client = new IGPAPIClient();
-      await client.initialize();
-      expect(client.isLoggedIn()).toBe(true);
-    }
-  });
-
-  it("names the previous failure when the login budget is used up", async () => {
-    delete process.env.IG_RATE_LIMITS;
-    resetRateLimiter();
-    const client = new IGPAPIClient();
-    await client.initialize();
-    stubLogin(client.getClient(), async () => {
-      throw new Error("POST /api/v1/qe/sync/ - 404 Not Found; ");
+      await expect(inFlight).rejects.toThrow(LOGIN_CANCELLED_MESSAGE);
+      expect(manager.isLoggedIn()).toBe(false);
+      expect(manager.getUsername()).toBeNull();
+      expect(await sessionExists()).toBe(false);
     });
 
-    await expect(client.login("alice", "secret")).rejects.toThrow("404 Not Found");
-    const second = client.login("alice", "secret");
-    await expect(second).rejects.toBeInstanceOf(RateLimitError);
-    await expect(second).rejects.toThrow(/Rate limit reached.*previous login attempt \(1s ago\) failed: POST \/api\/v1\/qe\/sync\/ - 404/);
-  });
+    it("keeps a login made after logout when an older login finishes later", async () => {
+      const { gate, release } = gated();
+      let first = true;
+      const { manager } = managerWith(async () => {
+        if (first) {
+          first = false;
+          await gate;
+        }
+        return currentUser("alice")();
+      });
+      await manager.initialize();
+      const stale = manager.loginWithSessionId(SESSION_ID);
+      await manager.logout();
+      await manager.loginWithSessionId(SESSION_ID);
+      expect(manager.isLoggedIn()).toBe(true);
 
-  it("rate limits password logins before contacting Instagram", async () => {
-    delete process.env.IG_RATE_LIMITS;
-    resetRateLimiter();
-    const client = new IGPAPIClient();
-    await client.initialize();
-    let attempts = 0;
-    stubLogin(client.getClient(), async () => {
-      attempts++;
-      return { username: "alice" };
+      release();
+      await expect(stale).rejects.toThrow(LOGIN_CANCELLED_MESSAGE);
+      expect(manager.isLoggedIn()).toBe(true);
+      expect(await sessionExists()).toBe(true);
     });
-
-    await client.login("alice", "secret");
-    await expect(client.login("alice", "secret")).rejects.toBeInstanceOf(RateLimitError);
-    expect(attempts).toBe(1);
   });
 
-  /** Replaces account.login on the client's current IgApiClient. */
-  function stubLogin(ig: IgApiClient, impl: () => Promise<unknown>) {
-    (ig.account as unknown as { login: () => Promise<unknown> }).login = impl;
-  }
-
-  function deferred() {
-    let resolve!: () => void;
-    const promise = new Promise<void>((r) => {
-      resolve = r;
-    });
-    return { promise, resolve };
-  }
-
-  it("abandons a login that a logout overtook", async () => {
-    const client = new IGPAPIClient();
-    await client.initialize();
-    const gate = deferred();
-    stubLogin(client.getClient(), () => gate.promise);
-
-    const inFlight = client.login("alice", "secret");
-    await client.logout();
-    gate.resolve();
-
-    await expect(inFlight).rejects.toThrow(LOGIN_CANCELLED_MESSAGE);
-    expect(client.isLoggedIn()).toBe(false);
-    expect(client.getUsername()).toBeNull();
-    expect(await sessionExists()).toBe(false);
+  it("explains that password login is unavailable and points to IG_SESSION_ID", async () => {
+    const { manager, calls } = managerWith(() => json({}));
+    await expect(manager.login("alice", "secret")).rejects.toThrow(PASSWORD_LOGIN_UNAVAILABLE_MESSAGE);
+    expect(PASSWORD_LOGIN_UNAVAILABLE_MESSAGE).toContain("IG_SESSION_ID");
+    expect(calls).toEqual([]);
   });
 
-  it("keeps a login made after logout when an older login finishes later", async () => {
-    const client = new IGPAPIClient();
-    await client.initialize();
-    const gate = deferred();
-    stubLogin(client.getClient(), () => gate.promise);
-    const stale = client.login("alice", "secret");
-
-    await client.logout();
-    await client.initialize();
-    stubLogin(client.getClient(), async () => ({}));
-    await client.login("alice", "secret");
-    expect(client.isLoggedIn()).toBe(true);
-    expect(await sessionExists()).toBe(true);
-
-    gate.resolve();
-    await expect(stale).rejects.toThrow(LOGIN_CANCELLED_MESSAGE);
-    expect(client.isLoggedIn()).toBe(true);
-    expect(client.getUsername()).toBe("alice");
-    expect(await sessionExists()).toBe(true);
-  });
-
-  it("bounds every Instagram request with a timeout", async () => {
-    const client = new IGPAPIClient();
-    await client.initialize();
-    expect(client.isLoggedIn()).toBe(false);
-    expect(client.getClient().request.defaults.timeout).toBe(REQUEST_TIMEOUT_MS);
+  it("getCurrentUser returns the raw user of the session", async () => {
+    const { manager } = managerWith(currentUser("alice", 7));
+    await manager.loginWithSessionId(SESSION_ID);
+    await expect(manager.getCurrentUser()).resolves.toMatchObject({ pk: 7, username: "alice" });
   });
 });
