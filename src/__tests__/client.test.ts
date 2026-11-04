@@ -158,6 +158,21 @@ describe("IGPAPIClient.initialize", () => {
     }
   });
 
+  it("names the previous failure when the login budget is used up", async () => {
+    delete process.env.IG_RATE_LIMITS;
+    resetRateLimiter();
+    const client = new IGPAPIClient();
+    await client.initialize();
+    stubLogin(client.getClient(), async () => {
+      throw new Error("POST /api/v1/qe/sync/ - 404 Not Found; ");
+    });
+
+    await expect(client.login("alice", "secret")).rejects.toThrow("404 Not Found");
+    const second = client.login("alice", "secret");
+    await expect(second).rejects.toBeInstanceOf(RateLimitError);
+    await expect(second).rejects.toThrow(/Rate limit reached.*previous login attempt \(1s ago\) failed: POST \/api\/v1\/qe\/sync\/ - 404/);
+  });
+
   it("rate limits password logins before contacting Instagram", async () => {
     delete process.env.IG_RATE_LIMITS;
     resetRateLimiter();

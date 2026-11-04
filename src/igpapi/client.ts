@@ -12,7 +12,7 @@ import {
 } from "instagram-private-api";
 import { getConfig } from "../config/index.js";
 import type { TwoFactorAuthInfo } from "../types/index.js";
-import { consumeRateLimit } from "../utils/rateLimit.js";
+import { consumeRateLimit, formatDuration, RateLimitError } from "../utils/rateLimit.js";
 import { loadSession, saveSession, deleteSession } from "./session.js";
 
 /**
@@ -100,6 +100,35 @@ export class IGPAPIClient {
    * session the user just logged out of.
    */
   private authEpoch = 0;
+  /**
+   * Why the last login attempt failed, so a later rate-limit rejection can say
+   * so instead of hiding it (e.g. the startup auto-login used the budget).
+   */
+  private lastLoginFailure: { message: string; at: number } | null = null;
+
+  private recordLoginFailure(error: unknown): void {
+    this.lastLoginFailure = {
+      message: error instanceof Error ? error.message : String(error),
+      at: Date.now(),
+    };
+  }
+
+  /** consumeRateLimit("login"), with the previous failure appended to a rejection. */
+  private consumeLoginBudget(): void {
+    try {
+      consumeRateLimit("login");
+    } catch (error) {
+      const failure = this.lastLoginFailure;
+      if (error instanceof RateLimitError && failure) {
+        throw new RateLimitError(
+          `${error.message} The previous login attempt (${formatDuration(Date.now() - failure.at)} ago) failed: ${failure.message}`,
+          error.action,
+          error.retryAfterMs
+        );
+      }
+      throw error;
+    }
+  }
 
   /**
    * Initialize the IGPAPI client instance
@@ -191,6 +220,7 @@ export class IGPAPIClient {
     this.username = username;
     this.loggedIn = true;
     this.twoFactorInfo = null; // Clear any pending 2FA info
+    this.lastLoginFailure = null;
   }
 
   /**
@@ -210,7 +240,7 @@ export class IGPAPIClient {
 
     // Every call is a fresh password login (and possibly an SMS). Instagram
     // checkpoints accounts that do this repeatedly, so cap it like writes.
-    consumeRateLimit("login");
+    this.consumeLoginBudget();
 
     // Generate device based on username
     client.state.generateDevice(username);
@@ -244,6 +274,7 @@ export class IGPAPIClient {
       }
 
       // Re-throw other errors
+      this.recordLoginFailure(error);
       throw error;
     }
 
@@ -280,6 +311,7 @@ export class IGPAPIClient {
       }
       // Clear 2FA info on error so user can retry
       this.twoFactorInfo = null;
+      this.recordLoginFailure(error);
       throw error;
     }
 
