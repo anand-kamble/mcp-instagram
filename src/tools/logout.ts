@@ -1,58 +1,44 @@
 /**
- * Instagram Logout Tool
- * Logs out from Instagram and clears the saved session
+ * instagram_logout: deletes the saved session.
  */
 
-import { BaseTool } from "./base.js";
-import type { ToolDefinition, ToolResult } from "../types/index.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod";
 import { igpapiClient } from "../igpapi/index.js";
+import { waitForStartup } from "./shared/instagram.js";
+import { textResult } from "./shared/results.js";
 
-export class LogoutTool extends BaseTool {
-  getDefinition(): ToolDefinition {
-    return {
-      name: "instagram_logout",
-      description: "Logout from Instagram and clear the saved session. This will invalidate the current session and require re-authentication for future operations.",
-      inputSchema: {
-        type: "object",
-        properties: {},
-        required: [],
+export function registerLogout(server: McpServer): void {
+  server.registerTool(
+    "instagram_logout",
+    {
+      title: "Log out of Instagram",
+      description:
+        "Log out of Instagram and delete the saved session file. After this, instagram_login must be called " +
+        "before any other Instagram tool works.",
+      inputSchema: z.object({}).strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
       },
-    };
-  }
-
-  async execute(args: Record<string, unknown>): Promise<ToolResult> {
-    // Check if already logged out
-    if (!igpapiClient.isLoggedIn()) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Already logged out. No active session to clear.",
-          },
-        ],
-      };
+    },
+    async () => {
+      await waitForStartup();
+      if (!igpapiClient.isLoggedIn()) {
+        return textResult("Already logged out. There is no saved session to delete.");
+      }
+      let username: string | undefined;
+      try {
+        username = (await igpapiClient.getCurrentUser()).username;
+      } catch {
+        // The confirmation message is best-effort; log out regardless.
+      }
+      await igpapiClient.logout();
+      return textResult(
+        `Logged out of Instagram${username ? ` (@${username})` : ""}. The saved session was deleted.`
+      );
     }
-
-    // Get current user info before logout (for confirmation message)
-    let username: string | undefined;
-    try {
-      const currentUser = await igpapiClient.getCurrentUser();
-      username = currentUser.username;
-    } catch {
-      // User info might not be available, continue with logout anyway
-    }
-
-    // Perform logout
-    await igpapiClient.logout();
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Successfully logged out from Instagram${username ? ` (${username})` : ""}.\n\nSession has been cleared. You will need to login again to use Instagram features.`,
-        },
-      ],
-    };
-  }
+  );
 }
-
