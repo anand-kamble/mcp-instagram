@@ -446,7 +446,22 @@ export class IGPAPIClient {
     }
     this.assertCurrent(epoch);
     this.pendingLogin = null;
-    await this.finishPasswordLogin(client, epoch, pendingLogin.username);
+    try {
+      await this.finishPasswordLogin(client, epoch, pendingLogin.username);
+    } catch (error) {
+      if (epoch === this.authEpoch) {
+        // Leave no half-finished login behind (e.g. the session could not be
+        // saved): instagram_login must start over instead of waiting for a
+        // code that instagram_complete_2fa can no longer accept.
+        this.twoFactorInfo = null;
+        this.loggedIn = false;
+        client.clearSession();
+        if (!(error instanceof Error && error.message === LOGIN_CANCELLED_MESSAGE)) {
+          this.recordLoginFailure(error);
+        }
+      }
+      throw error;
+    }
   }
 
   /** Confirms the new session with Instagram, checks the account and saves it. */

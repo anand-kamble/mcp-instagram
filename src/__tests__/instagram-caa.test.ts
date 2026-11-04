@@ -359,6 +359,38 @@ describe("IGPAPIClient password login", () => {
     await expect(m.completeTwoFactorLogin("000000")).rejects.toThrow(/No pending 2FA login/);
   });
 
+  it("leaves no pending two-factor state when the session cannot be saved", async () => {
+    const ig = fakeInstagram({
+      [SEND_LOGIN]: () => ({ status: 200, body: navigate("com.bloks.www.two_step_verification.entrypoint", "two_step_verification_context", "ctx") }),
+      "com.bloks.www.two_step_verification.verify_code.async": () => ({ status: 200, body: successAction() }),
+    });
+    const m = manager(ig);
+    await m.login("example", "pw").catch(() => undefined);
+    expect(m.hasPendingTwoFactor()).toBe(true);
+
+    // Make saving fail: the session directory path runs through a regular file.
+    const blocker = join(dir, "blocker");
+    await fs.writeFile(blocker, "");
+    process.env.IG_SESSION_DIR = join(blocker, "sessions");
+    const original = console.error;
+    console.error = () => undefined;
+    try {
+      await expect(m.completeTwoFactorLogin("123456")).rejects.toThrow(/Failed to save session/);
+    } finally {
+      console.error = original;
+    }
+    expect(m.hasPendingTwoFactor()).toBe(false);
+    expect(m.getTwoFactorInfo()).toBeNull();
+    expect(m.isLoggedIn()).toBe(false);
+    await expect(m.completeTwoFactorLogin("123456")).rejects.toThrow(/No pending 2FA login/);
+
+    // After fixing the problem, a new login works.
+    process.env.IG_SESSION_DIR = dir;
+    await m.login("example", "pw").catch(() => undefined);
+    await m.completeTwoFactorLogin("123456");
+    expect(m.isLoggedIn()).toBe(true);
+  });
+
   it("drops a pending login on logout", async () => {
     const ig = fakeInstagram({
       [SEND_LOGIN]: () => ({ status: 200, body: navigate("com.bloks.www.two_step_verification.entrypoint", "two_step_verification_context", "ctx") }),
