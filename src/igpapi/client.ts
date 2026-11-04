@@ -28,6 +28,13 @@ export function isInvalidSessionError(error: unknown): boolean {
   );
 }
 
+/**
+ * Timeout for every Instagram HTTP request. instagram-private-api sets none,
+ * and the underlying `request` library waits indefinitely on a stalled
+ * connection, which would hang tool calls (and startup) with it.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000;
+
 export class IGPAPIClient {
   private client: IgApiClient | null = null;
   private username: string | null = null;
@@ -44,6 +51,7 @@ export class IGPAPIClient {
     }
 
     this.client = new IgApiClient();
+    this.client.request.defaults.timeout = REQUEST_TIMEOUT_MS;
     this.initialized = true;
 
     // Try to restore session

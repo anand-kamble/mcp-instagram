@@ -8,7 +8,10 @@ import {
   IgNetworkError,
   IgUserHasLoggedOutError,
 } from "instagram-private-api";
-import { isInvalidSessionError } from "../igpapi/client.js";
+import { promises as fs } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { IGPAPIClient, isInvalidSessionError, REQUEST_TIMEOUT_MS } from "../igpapi/client.js";
 
 function fakeResponse(statusCode: number, message: string) {
   return {
@@ -30,5 +33,28 @@ describe("isInvalidSessionError", () => {
     expect(isInvalidSessionError(new IgNetworkError(new Error("ECONNRESET")))).toBe(false);
     expect(isInvalidSessionError(new Error("socket hang up"))).toBe(false);
     expect(isInvalidSessionError("weird")).toBe(false);
+  });
+});
+
+describe("IGPAPIClient.initialize", () => {
+  const savedSessionDir = process.env.IG_SESSION_DIR;
+  let sessionDir: string;
+
+  beforeEach(async () => {
+    sessionDir = await fs.mkdtemp(join(tmpdir(), "mcp-instagram-client-"));
+    process.env.IG_SESSION_DIR = sessionDir;
+  });
+
+  afterEach(async () => {
+    if (savedSessionDir === undefined) delete process.env.IG_SESSION_DIR;
+    else process.env.IG_SESSION_DIR = savedSessionDir;
+    await fs.rm(sessionDir, { recursive: true, force: true });
+  });
+
+  it("bounds every Instagram request with a timeout", async () => {
+    const client = new IGPAPIClient();
+    await client.initialize();
+    expect(client.isLoggedIn()).toBe(false);
+    expect(client.getClient().request.defaults.timeout).toBe(REQUEST_TIMEOUT_MS);
   });
 });
