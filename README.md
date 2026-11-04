@@ -47,6 +47,10 @@ Keep `--transport stdio` between the last `--env` and the server name; otherwise
 
 ### Claude Desktop
 
+**One-click bundle.** Starting with the first release after 0.0.6, each [GitHub release](https://github.com/anand-kamble/mcp-instagram/releases) includes `mcp-instagram-<version>.mcpb`. Open the file (double-click, or drag it into Claude Desktop's **Settings > Extensions**). Claude Desktop asks for your Instagram username and password, masks the password, and runs the server with its built-in Node.js, so no separate Node install or JSON editing is needed. To build the bundle yourself: `yarn build && node scripts/pack-mcpb.mjs`.
+
+**Manual configuration:**
+
 1. **Locate your Claude Desktop configuration file:**
    - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
    - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`

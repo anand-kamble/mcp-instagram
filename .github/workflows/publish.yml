@@ -81,3 +81,39 @@ jobs:
           npm version ${{ github.event.inputs.version }} --no-git-tag-version --allow-same-version
           npm publish --access public --provenance
 
+  mcpb:
+    # Attach a Claude Desktop bundle (.mcpb) to the GitHub release.
+    if: github.event_name == 'release'
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload the release asset
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Enable Corepack (for Yarn)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build project
+        run: yarn build
+
+      - name: Pack bundle
+        run: node scripts/pack-mcpb.mjs
+
+      - name: Upload bundle to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/*.mcpb --clobber --repo "$GITHUB_REPOSITORY"
