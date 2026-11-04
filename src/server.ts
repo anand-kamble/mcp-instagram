@@ -19,16 +19,28 @@ async function restoreOrLogin(): Promise<void> {
   const config = loadConfigFromEnv();
   setConfig(config);
 
+  // initialize() restores the saved session, or imports IG_SESSION_ID.
   await igpapiClient.initialize();
   if (igpapiClient.isLoggedIn()) {
-    log("Restored saved Instagram session.");
+    log("Instagram session ready.");
+    return;
+  }
+
+  // IG_SESSION_ID was configured but could not be used (initialize logged
+  // why). Don't fall back to a password login here: it would spend the login
+  // rate limit that instagram_login needs to retry with a fresh cookie.
+  if (config.igpapi?.sessionId) {
+    log("Not logged in: IG_SESSION_ID was not accepted. Copy a fresh sessionid cookie into IG_SESSION_ID and restart.");
     return;
   }
 
   const username = config.igpapi?.username;
   const password = config.igpapi?.password;
   if (!username || !password) {
-    log("No saved session and no IG_USERNAME/IG_PASSWORD set. Use the instagram_login tool once credentials are configured.");
+    log(
+      "Not logged in: set IG_SESSION_ID to the sessionid cookie from a browser logged in to instagram.com " +
+        "(or IG_USERNAME/IG_PASSWORD), then restart or call the instagram_login tool."
+    );
     return;
   }
 
