@@ -6,8 +6,6 @@ export interface Config {
   igpapi?: {
     username?: string;
     password?: string;
-    sessionId?: string;
-    deviceId?: string;
   };
 }
 
@@ -26,9 +24,6 @@ export function loadConfigFromEnv(): Config {
     igpapi: {
       username: process.env.IG_USERNAME,
       password: process.env.IG_PASSWORD,
-      sessionId: process.env.IG_SESSION_ID,
-      deviceId: process.env.IG_DEVICE_ID,
     },
   };
 }
-
