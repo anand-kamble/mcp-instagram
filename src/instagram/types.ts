@@ -74,8 +74,8 @@ export interface SessionState {
   rur?: string;
   /** X-IG-WWW-Claim (from x-ig-set-www-claim). */
   wwwClaim?: string;
-  /** The IG_SESSION_ID value this session was imported from, if any. */
-  importedSessionId?: string;
+  /** SHA-256 (hex) of the IG_SESSION_ID value this session was imported from, if any. */
+  importedSessionIdSha256?: string;
   /** USDID device key used by the CAA login. */
   usdid?: { usdid: string; kid: string; privateKeyPem: string; registered: boolean };
   /** Logged-in user. */

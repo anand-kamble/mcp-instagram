@@ -139,6 +139,30 @@ const tls = selfSignedCert();
     }
   });
 
+  it("refuses oversized and unrequested-encoding responses", async () => {
+    const { MAX_RESPONSE_BYTES } = await import("../instagram/index.js");
+    const big = createSecureServer({ key: tls!.key, cert: tls!.cert }, (req, res) => {
+      if (req.url === "/br") {
+        res.setHeader("content-encoding", "br");
+        res.end("x");
+        return;
+      }
+      res.setHeader("content-encoding", "gzip");
+      res.end(gzipSync(Buffer.alloc(MAX_RESPONSE_BYTES + 1)));
+    });
+    await new Promise<void>((resolve) => big.listen(0, "127.0.0.1", resolve));
+    const bigOrigin = `https://localhost:${(big.address() as AddressInfo).port}`;
+    const transport = createH2Transport({ ca: tls!.cert });
+    try {
+      const get = (path: string) => transport({ method: "GET", url: `${bigOrigin}${path}`, headers: {}, signal: AbortSignal.timeout(5000) });
+      await expect(get("/bomb")).rejects.toThrow(/Cannot create a Buffer|maxOutputLength|larger than/i);
+      await expect(get("/br")).rejects.toThrow(/unsupported content-encoding "br"/);
+    } finally {
+      await transport.close?.();
+      await new Promise<void>((resolve) => big.close(() => resolve()));
+    }
+  });
+
   it("keeps certificate verification on", async () => {
     const transport = createH2Transport();
     try {

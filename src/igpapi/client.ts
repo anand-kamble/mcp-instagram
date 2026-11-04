@@ -7,6 +7,7 @@
  * startup code call.
  */
 
+import { createHash } from "node:crypto";
 import { getConfig } from "../config/index.js";
 import {
   CaaLogin,
@@ -74,6 +75,11 @@ export function userIdFromSessionId(sessionid: string): string | undefined {
   return match && sessionid.length >= 30 ? match[1] : undefined;
 }
 
+/** SHA-256 of an IG_SESSION_ID value, so the session file records its source without storing it again. */
+export function sessionIdFingerprint(sessionid: string): string {
+  return createHash("sha256").update(sessionid.trim()).digest("hex");
+}
+
 interface CurrentUserResponse {
   user?: { pk?: number | string; pk_id?: string; username?: string; full_name?: string; [key: string]: unknown };
 }
@@ -96,6 +102,13 @@ export class IGPAPIClient {
   /** A password login waiting for its verification code. */
   private pendingLogin: { caa: CaaLogin; pending: PendingTwoFactor; username: string } | null = null;
   /**
+   * Set by an explicit logout: IG_SESSION_ID is then not imported again
+   * automatically until the next login call or a restart.
+   */
+  private loggedOutByUser = false;
+  /** Serialises logins, so two flows never interleave on the shared client. */
+  private authQueue: Promise<unknown> = Promise.resolve();
+  /**
    * Incremented by logout() and reset(). A restore or login that was in
    * flight when it changed abandons its result instead of resurrecting a
    * session the user just logged out of.
@@ -110,6 +123,13 @@ export class IGPAPIClient {
   constructor(options: IGPAPIClientOptions = {}) {
     this.createClient = options.createClient ?? ((session) => new InstagramClient({ session }));
     this.loginPaceMs = options.loginPaceMs ?? 1000;
+  }
+
+  /** Runs `fn` after any login operation already in progress has finished. */
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.authQueue.then(fn);
+    this.authQueue = run.catch(() => undefined);
+    return run;
   }
 
   private recordLoginFailure(error: unknown): void {
@@ -192,12 +212,21 @@ export class IGPAPIClient {
     const client = this.createClient(saved ?? undefined);
     this.client = client;
 
-    const configuredSessionId = getConfig().igpapi?.sessionId;
+    const configuredSessionId = getConfig().igpapi?.sessionId?.trim();
     // Instagram may rotate the session after import, so compare with what it was imported from.
-    const savedSource = saved?.importedSessionId ?? saved?.authorization?.sessionid;
-    if (configuredSessionId && savedSource !== configuredSessionId.trim()) {
+    const importedFromConfig =
+      configuredSessionId !== undefined &&
+      (saved?.importedSessionIdSha256 === sessionIdFingerprint(configuredSessionId) ||
+        saved?.authorization?.sessionid === configuredSessionId);
+    if (configuredSessionId && !importedFromConfig) {
+      if (this.loggedOutByUser) {
+        return; // Stay logged out until the user logs in again.
+      }
       try {
-        await this.loginWithSessionId(configuredSessionId);
+        await this.exclusive(() => {
+          this.assertCurrent(epoch);
+          return this.loginWithSessionIdNow(configuredSessionId);
+        });
       } catch (error) {
         if (error instanceof Error && error.message !== LOGIN_CANCELLED_MESSAGE) {
           console.error("[mcp-instagram] Could not use IG_SESSION_ID:", error.message);
@@ -207,6 +236,13 @@ export class IGPAPIClient {
     }
 
     if (!saved || !client.hasSession) {
+      return;
+    }
+
+    // The restored session must belong to the account IG_SESSION_ID names.
+    const configuredUserId = configuredSessionId ? userIdFromSessionId(configuredSessionId) : undefined;
+    if (configuredUserId && client.userId && client.userId !== configuredUserId) {
+      await this.discardSession(epoch, client, "The saved session does not belong to the account in IG_SESSION_ID");
       return;
     }
 
@@ -257,20 +293,34 @@ export class IGPAPIClient {
    * sent. Verifies it with Instagram and saves the session.
    */
   async loginWithSessionId(sessionid: string): Promise<void> {
-    const trimmed = sessionid.trim();
-    const userId = userIdFromSessionId(trimmed);
-    if (!userId) {
+    if (!userIdFromSessionId(sessionid.trim())) {
       throw new Error(
         "IG_SESSION_ID does not look like an Instagram sessionid cookie: it should start with your numeric user id, " +
           'followed by "%3A" or ":".'
       );
     }
+    this.loggedOutByUser = false;
     if (!this.client) {
       await this.initialize();
+    }
+    // A logout after this call was made cancels it, even if it is still queued.
+    const epoch = this.authEpoch;
+    return this.exclusive(async () => {
+      this.assertCurrent(epoch);
       const current = this.client as InstagramClient | null;
-      if (this.loggedIn && current?.serialize().authorization?.sessionid === trimmed) {
+      if (this.loggedIn && current?.serialize().authorization?.sessionid === sessionid.trim()) {
         return; // initialize() already imported this cookie.
       }
+      await this.loginWithSessionIdNow(sessionid);
+    });
+  }
+
+  /** loginWithSessionId's work; callers hold the auth queue. */
+  private async loginWithSessionIdNow(sessionid: string): Promise<void> {
+    const trimmed = sessionid.trim();
+    const userId = userIdFromSessionId(trimmed);
+    if (!userId) {
+      throw new Error("IG_SESSION_ID does not look like an Instagram sessionid cookie.");
     }
     const client = this.client;
     if (!client) {
@@ -291,7 +341,7 @@ export class IGPAPIClient {
         throw new Error(`IG_SESSION_ID belongs to @${username}, not IG_USERNAME (@${expected}).`);
       }
       client.setAccount(String(response.user?.pk ?? userId), username);
-      await this.commitLogin(client, epoch, username ?? userId, { importedSessionId: trimmed });
+      await this.commitLogin(client, epoch, username ?? userId, { importedSessionIdSha256: sessionIdFingerprint(trimmed) });
     } catch (error) {
       if (epoch === this.authEpoch) {
         client.clearSession();
@@ -309,9 +359,19 @@ export class IGPAPIClient {
    * @throws {TwoFactorAuthInfo} If a verification code is needed; finish with completeTwoFactorLogin()
    */
   async login(username: string, password: string): Promise<void> {
+    this.loggedOutByUser = false;
     if (!this.client) {
       await this.initialize();
     }
+    const epoch = this.authEpoch;
+    return this.exclusive(() => {
+      this.assertCurrent(epoch);
+      return this.loginNow(username, password);
+    });
+  }
+
+  /** login's work; callers hold the auth queue. */
+  private async loginNow(username: string, password: string): Promise<void> {
     const client = this.client;
     if (!client) {
       throw new Error("Failed to initialize the Instagram client");
@@ -325,7 +385,7 @@ export class IGPAPIClient {
     this.loggedIn = false;
     client.clearSession();
 
-    const caa = new CaaLogin(client, this.loginPaceMs);
+    const caa = new CaaLogin(client, this.loginPaceMs, () => epoch === this.authEpoch);
     let start;
     try {
       start = await caa.start(username, password);
@@ -356,6 +416,14 @@ export class IGPAPIClient {
    * Complete 2FA login with verification code
    */
   async completeTwoFactorLogin(verificationCode: string): Promise<void> {
+    const epoch = this.authEpoch;
+    return this.exclusive(() => {
+      this.assertCurrent(epoch);
+      return this.completeTwoFactorLoginNow(verificationCode);
+    });
+  }
+
+  private async completeTwoFactorLoginNow(verificationCode: string): Promise<void> {
     if (!this.client) {
       throw new Error("Instagram client not initialized. Please call login first.");
     }
@@ -476,6 +544,7 @@ export class IGPAPIClient {
    */
   async logout(): Promise<void> {
     this.reset();
+    this.loggedOutByUser = true;
     await deleteSession();
   }
 
@@ -484,6 +553,8 @@ export class IGPAPIClient {
    */
   reset(): void {
     this.authEpoch++;
+    // Operations queued before the reset are cancelled (epoch); new ones must not wait for them.
+    this.authQueue = Promise.resolve();
     const client = this.client;
     this.client = null;
     this.username = null;

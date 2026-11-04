@@ -369,3 +369,55 @@ describe("IGPAPIClient password login", () => {
     expect(m.hasPendingTwoFactor()).toBe(false);
   });
 });
+
+describe("hardening", () => {
+  it("stops a password login before submitting it once the login was cancelled", async () => {
+    let current = true;
+    const ig = fakeInstagram({
+      "com.bloks.www.caa.login.oauth.token.fetch.async": () => {
+        current = false; // a logout happens during the preflight
+        return { status: 200, body: { status: "ok" } };
+      },
+    });
+    const caa = new CaaLogin(new InstagramClient({ transport: ig.transport }), 0, () => current);
+    await expect(caa.start("example", "pw")).rejects.toThrow("Login was cancelled by a logout.");
+    expect(ig.sequence().some((line) => line.includes(SEND_LOGIN))).toBe(false);
+  });
+
+  it("judges the login payload, not session state the client already had", async () => {
+    const ig = fakeInstagram({
+      [SEND_LOGIN]: () => ({ status: 200, body: navigate("com.bloks.www.two_step_verification.entrypoint", "two_step_verification_context", "ctx") }),
+      "com.bloks.www.two_step_verification.verify_code.async": () => ({
+        status: 200,
+        body: { status: "ok", layout: { bloks_payload: { action: `x(${pyDumps(pyDumps({ login_response: "{}", headers: "{}", cookies: "" }))})` } } },
+      }),
+    });
+    const client = new InstagramClient({ transport: ig.transport });
+    const caa = new CaaLogin(client, 0);
+    const started = await caa.start("example", "pw");
+    if (started.status !== "two_factor") throw new Error("expected two_factor");
+    client.setAuthorization(AUTH); // e.g. installed by another flow
+    await expect(caa.submitCode(started.pending, "123456")).rejects.toBeInstanceOf(IgTwoFactorCodeError);
+  });
+
+  it("parses hostile bloks programs in linear time", async () => {
+    const { extractLoginResponse, extractContextData } = await import("../instagram/index.js");
+    const hostile = '"\\"'.repeat(60_000); // many unterminated / invalid literals
+    const startedAt = Date.now();
+    expect(extractLoginResponse({ layout: { bloks_payload: { action: hostile } } })).toBeNull();
+    expect(extractContextData({ action: hostile }, "com.bloks.www.x")).toBe("");
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+    let deep: unknown = "leaf";
+    for (let i = 0; i < 100_000; i++) deep = [deep];
+    expect(() => extractLoginResponse({ layout: { bloks_payload: { data: deep } } })).not.toThrow();
+  });
+
+  it("rejects session files whose header values contain control characters", async () => {
+    const { sessionStateFromJson } = await import("../instagram/index.js");
+    const valid = new InstagramClient({ transport: fakeInstagram().transport }).serialize();
+    expect(sessionStateFromJson({ ...valid, device: { ...valid.device, model: "Pixel\r\nX-Evil: 1" } })).toBeNull();
+    const cleaned = sessionStateFromJson({ ...valid, mid: "a\nb", cookies: { ok: "1", "bad;name": "x", evil: "a\r\nb" } });
+    expect(cleaned?.mid).toBeUndefined();
+    expect(cleaned?.cookies).toEqual({ ok: "1" });
+  });
+});

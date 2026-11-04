@@ -24,6 +24,7 @@ import {
 } from "./bloks.js";
 import type { InstagramClient } from "./client.js";
 import { pyDumps } from "./encoding.js";
+import { parseAuthorizationHeader } from "./client.js";
 import { IgError } from "./errors.js";
 import { encryptPassword } from "./password.js";
 import { usdidRegistrationToken } from "./usdid.js";
@@ -47,6 +48,13 @@ export class IgLoginFallbackError extends IgLoginFlowError {}
 
 /** The verification code was not accepted (wrong or expired). */
 export class IgTwoFactorCodeError extends IgLoginFlowError {}
+
+/** A logout happened while the login was in progress; it stopped before the next request. */
+export class IgLoginCancelledError extends IgLoginFlowError {
+  constructor() {
+    super("Login was cancelled by a logout.");
+  }
+}
 
 export type TwoFactorMethod = "profile_code" | "totp" | "sms" | "backup_codes";
 
@@ -87,7 +95,17 @@ export class CaaLogin {
    * @param paceMs instagrapi waits 1 s before requests not flagged as login
    *   steps (the two-step screens); tests pass 0.
    */
-  constructor(private readonly client: InstagramClient, private readonly paceMs = 1000) {}
+  constructor(
+    private readonly client: InstagramClient,
+    private readonly paceMs = 1000,
+    /** False once the caller's login was cancelled (e.g. by a logout); checked before every request. */
+    private readonly isCurrent: () => boolean = () => true
+  ) {}
+
+  private request<T>(req: Parameters<InstagramClient["request"]>[0]): Promise<T> {
+    if (!this.isCurrent()) throw new IgLoginCancelledError();
+    return this.client.request<T>(req);
+  }
 
   private async pace(): Promise<void> {
     if (this.paceMs > 0) await new Promise((resolve) => setTimeout(resolve, this.paceMs));
@@ -104,7 +122,7 @@ export class CaaLogin {
   }
 
   private bloksAsync(action: string, params: Json, options: { domain?: string; headers?: Record<string, string> } = {}) {
-    return this.client.request<Json>({
+    return this.request<Json>({
       method: "POST",
       path: `bloks/async_action/${action}/`,
       form: this.bloksForm(params),
@@ -115,7 +133,7 @@ export class CaaLogin {
   }
 
   private bloksApp(app: string, params: Json, options: { domain?: string } = {}) {
-    return this.client.request<Json>({
+    return this.request<Json>({
       method: "POST",
       path: `bloks/apps/${app}/`,
       form: this.bloksForm(params),
@@ -135,7 +153,7 @@ export class CaaLogin {
         fdid: { sensitive_string_value: this.client.device.phoneId },
       },
     };
-    const result = await this.client.request<Json>({
+    const result = await this.request<Json>({
       method: "POST",
       path: "/graphql_www",
       domain: CAA_DOMAIN,
@@ -168,7 +186,7 @@ export class CaaLogin {
   /** Pre-login: launcher/sync supplies the password encryption key and the machine id. */
   private async fetchPasswordKey(): Promise<void> {
     try {
-      await this.client.request({
+      await this.request({
         method: "POST",
         path: "launcher/sync/",
         form: { id: this.client.device.uuid, server_config_retrieval: "1" },
@@ -201,7 +219,7 @@ export class CaaLogin {
       { domain: CAA_DOMAIN }
     );
     const aac = extractAac(clientData);
-    const keystore = await this.client.request<Json>({
+    const keystore = await this.request<Json>({
       method: "POST",
       path: "attestation/create_android_keystore/",
       domain: CAA_DOMAIN,
@@ -299,6 +317,10 @@ export class CaaLogin {
   private applyLoginResponse(result: unknown): boolean {
     const payload = extractLoginResponse(result);
     if (!payload) return false;
+    // Judge the payload itself, not session state the client may already hold.
+    const authorizationHeader = Object.entries(payload.headers).find(([name]) => name.toLowerCase() === "ig-set-authorization")?.[1];
+    const carriesSession = Boolean(parseAuthorizationHeader(authorizationHeader) || payload.cookies.sessionid);
+    if (!carriesSession) return false;
     const cookies = Object.entries(payload.cookies).map(([name, value]) => `${name}=${value}`);
     this.client.absorbResponse(payload.headers, cookies);
     const user = payload.loginResponse.logged_in_user;
@@ -307,7 +329,7 @@ export class CaaLogin {
       const id = pk ?? pkId;
       if (id !== undefined && id !== null) this.client.setAccount(String(id), typeof username === "string" ? username : undefined);
     }
-    return this.client.hasSession;
+    return true;
   }
 
   /**

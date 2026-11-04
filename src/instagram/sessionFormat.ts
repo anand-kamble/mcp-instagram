@@ -19,6 +19,10 @@ function isString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
+/** Values that end up in request headers must be printable ASCII (no CR, LF or NUL). */
+const HEADER_SAFE = /^[\x20-\x7e]*$/;
+const isHeaderSafe = (value: unknown): value is string => typeof value === "string" && HEADER_SAFE.test(value);
+
 const DEVICE_STRING_KEYS: Array<keyof DeviceProfile> = [
   "appVersion", "versionCode", "bloksVersionId", "androidRelease", "dpi", "resolution",
   "manufacturer", "model", "device", "cpu", "locale", "uuid", "phoneId", "androidId", "adid",
@@ -27,7 +31,7 @@ const DEVICE_STRING_KEYS: Array<keyof DeviceProfile> = [
 function isDeviceProfile(value: unknown): value is DeviceProfile {
   return (
     isObject(value) &&
-    DEVICE_STRING_KEYS.every((key) => isString(value[key])) &&
+    DEVICE_STRING_KEYS.every((key) => isString(value[key]) && isHeaderSafe(value[key])) &&
     typeof value.androidVersion === "number" &&
     typeof value.timezoneOffset === "number"
   );
@@ -37,7 +41,7 @@ function stringRecord(value: unknown): Record<string, string> {
   const out: Record<string, string> = {};
   if (isObject(value)) {
     for (const [key, item] of Object.entries(value)) {
-      if (typeof item === "string") out[key] = item;
+      if (isHeaderSafe(key) && /^[^\s=;,]+$/.test(key) && isHeaderSafe(item) && !/[;,]/.test(item)) out[key] = item;
     }
   }
   return out;
@@ -67,6 +71,7 @@ function cookiesFromToughCookieJar(serialized: unknown, now: number): Record<str
     const domain = typeof cookie.domain === "string" ? cookie.domain : "";
     if (domain && !domain.endsWith("instagram.com")) continue;
     if (typeof cookie.expires === "string" && cookie.expires !== "Infinity" && Date.parse(cookie.expires) <= now) continue;
+    if (!isHeaderSafe(cookie.key) || !isHeaderSafe(cookie.value) || /[;,]/.test(cookie.value)) continue;
     out[cookie.key] = cookie.value;
   }
   return out;
@@ -113,10 +118,12 @@ export function sessionStateFromJson(raw: unknown, now: number = Date.now()): Se
       device: raw.device,
       cookies: stringRecord(raw.cookies),
       ...(authorization ? { authorization } : {}),
-      ...(isString(raw.mid) ? { mid: raw.mid } : {}),
-      ...(isString(raw.rur) ? { rur: raw.rur } : {}),
-      ...(isString(raw.wwwClaim) ? { wwwClaim: raw.wwwClaim } : {}),
-      ...(isString(raw.importedSessionId) ? { importedSessionId: raw.importedSessionId } : {}),
+      ...(isString(raw.mid) && isHeaderSafe(raw.mid) ? { mid: raw.mid } : {}),
+      ...(isString(raw.rur) && isHeaderSafe(raw.rur) ? { rur: raw.rur } : {}),
+      ...(isString(raw.wwwClaim) && isHeaderSafe(raw.wwwClaim) ? { wwwClaim: raw.wwwClaim } : {}),
+      ...(isString(raw.importedSessionIdSha256) && /^[0-9a-f]{64}$/.test(raw.importedSessionIdSha256)
+        ? { importedSessionIdSha256: raw.importedSessionIdSha256 }
+        : {}),
       ...(isObject(raw.usdid) && isString(raw.usdid.usdid) && isString(raw.usdid.kid) && isString(raw.usdid.privateKeyPem)
         ? {
             usdid: {

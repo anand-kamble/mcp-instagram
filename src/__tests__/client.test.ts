@@ -10,6 +10,7 @@ import { join } from "path";
 import { setConfig } from "../config/index.js";
 import {
   IGPAPIClient,
+  sessionIdFingerprint,
   isInvalidSessionError,
   LOGIN_CANCELLED_MESSAGE,
   userIdFromSessionId,
@@ -211,7 +212,8 @@ describe("IGPAPIClient", () => {
       const first = managerWith(currentUser("alice"));
       await first.manager.loginWithSessionId(SESSION_ID);
       const saved = await loadSession();
-      expect(saved?.importedSessionId).toBe(SESSION_ID);
+      expect(saved?.importedSessionIdSha256).toBe(sessionIdFingerprint(SESSION_ID));
+      expect(JSON.stringify(saved)).not.toContain('"importedSessionId"');
       // Simulate a rotated session id in the saved file.
       await saveSession({ ...saved!, authorization: { ds_user_id: "42", sessionid: "42%3Arotated-session-value-xxxxxxx" } });
 
@@ -285,43 +287,90 @@ describe("IGPAPIClient", () => {
       return { gate, release };
     }
 
-    it("abandons a login that a logout overtook", async () => {
+    it("abandons a login whose request was in flight when the logout happened", async () => {
       const { gate, release } = gated();
+      const { gate: entered, release: markEntered } = gated();
       const { manager } = managerWith(async () => {
+        markEntered();
         await gate;
         return currentUser("alice")();
       });
       await manager.initialize();
-      const inFlight = manager.loginWithSessionId(SESSION_ID);
+      const inFlight = manager.loginWithSessionId(SESSION_ID).catch((error: unknown) => error);
+      await entered;
       await manager.logout();
       release();
 
-      await expect(inFlight).rejects.toThrow(LOGIN_CANCELLED_MESSAGE);
+      expect(String(await inFlight)).toContain(LOGIN_CANCELLED_MESSAGE);
       expect(manager.isLoggedIn()).toBe(false);
       expect(manager.getUsername()).toBeNull();
       expect(await sessionExists()).toBe(false);
     });
 
+    it("cancels a queued login before it sends anything", async () => {
+      const { manager, calls } = managerWith(currentUser("alice"));
+      await manager.initialize();
+      const queued = manager.loginWithSessionId(SESSION_ID).catch((error: unknown) => error);
+      await manager.logout();
+      expect(String(await queued)).toContain(LOGIN_CANCELLED_MESSAGE);
+      expect(calls).toEqual([]);
+    });
+
     it("keeps a login made after logout when an older login finishes later", async () => {
       const { gate, release } = gated();
+      const { gate: entered, release: markEntered } = gated();
       let first = true;
       const { manager } = managerWith(async () => {
         if (first) {
           first = false;
+          markEntered();
           await gate;
         }
         return currentUser("alice")();
       });
       await manager.initialize();
-      const stale = manager.loginWithSessionId(SESSION_ID);
+      const stale = manager.loginWithSessionId(SESSION_ID).catch((error: unknown) => error);
+      await entered;
       await manager.logout();
       await manager.loginWithSessionId(SESSION_ID);
       expect(manager.isLoggedIn()).toBe(true);
 
       release();
-      await expect(stale).rejects.toThrow(LOGIN_CANCELLED_MESSAGE);
+      expect(String(await stale)).toContain(LOGIN_CANCELLED_MESSAGE);
       expect(manager.isLoggedIn()).toBe(true);
       expect(await sessionExists()).toBe(true);
+    });
+
+    it("stays logged out after logout even with IG_SESSION_ID configured", async () => {
+      setConfig({ igpapi: { sessionId: SESSION_ID } });
+      const { manager, calls } = managerWith(currentUser("alice"));
+      await manager.initialize();
+      expect(manager.isLoggedIn()).toBe(true);
+      await manager.logout();
+      const before = calls.length;
+
+      await manager.initialize(); // what the next tool call does
+      expect(manager.isLoggedIn()).toBe(false);
+      expect(await sessionExists()).toBe(false);
+      expect(calls.length).toBe(before);
+
+      await manager.loginWithSessionId(SESSION_ID); // an explicit login works again
+      expect(manager.isLoggedIn()).toBe(true);
+    });
+
+    it("runs logins one at a time", async () => {
+      let active = 0;
+      let maxActive = 0;
+      const { manager } = managerWith(async () => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active--;
+        return currentUser("alice")();
+      });
+      await manager.initialize();
+      await Promise.all([manager.loginWithSessionId(SESSION_ID), manager.loginWithSessionId(SESSION_ID)]);
+      expect(maxActive).toBe(1);
     });
   });
 

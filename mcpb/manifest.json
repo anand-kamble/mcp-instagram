@@ -4,7 +4,7 @@
   "display_name": "Instagram",
   "version": "0.0.0",
   "description": "Read Instagram profiles, posts, stories and comments, and like, comment and follow.",
-  "long_description": "Unofficial Instagram integration built on instagram-private-api. Instagram may flag or restrict accounts used through unofficial APIs, so prefer a secondary account. Write actions (likes, comments, follows) are rate limited by the server. You log in with your username and password (two-factor codes are requested when needed) or with the session cookie of a logged-in browser; the session is saved privately in ~/.config/mcp-instagram (or %APPDATA%\\mcp-instagram on Windows).",
+  "long_description": "Unofficial Instagram integration through its private mobile API, using a client ported from instagrapi. Instagram may flag or restrict accounts used through unofficial APIs, so prefer a secondary account. Write actions (likes, comments, follows) are rate limited by the server. You log in with your username and password (two-factor codes are requested when needed) or with the session cookie of a logged-in browser; the session is saved privately in ~/.config/mcp-instagram (or %APPDATA%\\mcp-instagram on Windows).",
   "author": {
     "name": "Anand Kamble",
     "email": "amkamble@icloud.com",

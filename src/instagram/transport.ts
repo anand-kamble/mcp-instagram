@@ -10,7 +10,7 @@
 import { connect, constants as h2constants } from "node:http2";
 import type { ClientHttp2Session } from "node:http2";
 import { createSecureContext } from "node:tls";
-import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
+import { gunzipSync, inflateSync } from "node:zlib";
 
 export interface TransportRequest {
   method: "GET" | "POST";
@@ -45,6 +45,9 @@ const ECDH_CURVES = (() => {
   }
 })();
 
+/** Largest response accepted, before and after decompression. Instagram's responses are far smaller. */
+export const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+
 const H2_FORBIDDEN = new Set([
   "connection",
   "host",
@@ -55,20 +58,23 @@ const H2_FORBIDDEN = new Set([
   "content-length",
 ]);
 
+/** Decodes the encodings the client asks for (Accept-Encoding: gzip, deflate), with a size cap. */
 function decode(buffer: Buffer, encoding: string | undefined): Buffer {
-  switch ((encoding ?? "").toLowerCase()) {
+  const name = (encoding ?? "").trim().toLowerCase();
+  switch (name) {
     case "gzip":
-      return gunzipSync(buffer);
+      return gunzipSync(buffer, { maxOutputLength: MAX_RESPONSE_BYTES });
     case "deflate":
-      return inflateSync(buffer);
-    case "br":
-      return brotliDecompressSync(buffer);
-    default:
+      return inflateSync(buffer, { maxOutputLength: MAX_RESPONSE_BYTES });
+    case "":
+    case "identity":
       return buffer;
+    default:
+      throw new Error(`unsupported content-encoding "${name}"`);
   }
 }
 
-/** HTTP/2-only transport with pooled sessions per origin. `ca` adds a trusted root (tests only). */
+/** HTTP/2-only transport with pooled sessions per origin. `ca` replaces the trusted roots (tests only). */
 export function createH2Transport(options: { ca?: string | Buffer } = {}): Transport {
   const sessions = new Map<string, ClientHttp2Session>();
   const session = (origin: string): ClientHttp2Session => {
@@ -80,8 +86,11 @@ export function createH2Transport(options: { ca?: string | Buffer } = {}): Trans
       ecdhCurve: ECDH_CURVES,
       ...(options.ca ? { ca: options.ca } : {}),
     });
-    created.on("error", () => sessions.delete(origin));
-    created.on("close", () => sessions.delete(origin));
+    const forget = () => {
+      if (sessions.get(origin) === created) sessions.delete(origin);
+    };
+    created.on("error", forget);
+    created.on("close", forget);
     created.setTimeout(60_000, () => created.close());
     created.unref();
     sessions.set(origin, created);
@@ -121,7 +130,16 @@ export function createH2Transport(options: { ca?: string | Buffer } = {}): Trans
         status = Number(h[h2constants.HTTP2_HEADER_STATUS]);
         responseHeaders = h as Record<string, string | string[] | undefined>;
       });
-      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      let received = 0;
+      stream.on("data", (chunk: Buffer) => {
+        received += chunk.length;
+        if (received > MAX_RESPONSE_BYTES) {
+          stream.close(h2constants.NGHTTP2_CANCEL);
+          reject(new Error(`response larger than ${MAX_RESPONSE_BYTES} bytes`));
+          return;
+        }
+        chunks.push(chunk);
+      });
       stream.on("error", reject);
       stream.on("end", () => {
         try {
@@ -154,7 +172,7 @@ export function createH2Transport(options: { ca?: string | Buffer } = {}): Trans
   return transport;
 }
 
-/** Adapts a fetch implementation (tests, or HTTP/1.1 fallback) to the Transport contract. */
+/** Adapts a fetch implementation to the Transport contract (used by tests). */
 export function fetchTransport(fetchImpl: typeof fetch): Transport {
   return async (req) => {
     const response = await fetchImpl(req.url, {

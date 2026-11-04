@@ -30,14 +30,24 @@ export const AP_2SV_CODE_ENTRY = "com.bloks.www.ap.two_step_verification.code_en
 export const AP_2SV_CODE_ENTRY_ASYNC = "com.bloks.www.ap.two_step_verification.code_entry_async";
 
 /** Every string anywhere in a JSON value. */
-export function collectStrings(value: unknown, out: string[] = []): string[] {
+export function collectStrings(value: unknown, out: string[] = [], depth = 0): string[] {
+  if (depth > MAX_DEPTH) return out;
   if (typeof value === "string") out.push(value);
-  else if (Array.isArray(value)) for (const item of value) collectStrings(item, out);
-  else if (isObject(value)) for (const item of Object.values(value)) collectStrings(item, out);
+  else if (Array.isArray(value)) for (const item of value) collectStrings(item, out, depth + 1);
+  else if (isObject(value)) for (const item of Object.values(value)) collectStrings(item, out, depth + 1);
   return out;
 }
 
-/** Decodes the JSON string literal starting at text[start]; null if there is none. */
+/** Strings longer than this are not scanned (real bloks programs are far smaller). */
+const MAX_SCAN_LENGTH = 2_000_000;
+/** Nesting deeper than this is not searched. */
+const MAX_DEPTH = 256;
+
+/**
+ * Decodes the JSON string literal starting at text[start]. Returns its end
+ * even when the literal is not valid JSON (value undefined), and null when
+ * no closing quote follows, so callers never rescan the same text.
+ */
 function decodeJsonString(text: string, start: number): { value: unknown; end: number } | null {
   if (text[start] !== '"') return null;
   for (let i = start + 1; i < text.length; i++) {
@@ -50,7 +60,7 @@ function decodeJsonString(text: string, start: number): { value: unknown; end: n
       try {
         return { value: JSON.parse(text.slice(start, i + 1)), end: i + 1 };
       } catch {
-        return null;
+        return { value: undefined, end: i + 1 };
       }
     }
   }
@@ -58,17 +68,18 @@ function decodeJsonString(text: string, start: number): { value: unknown; end: n
 }
 
 /** bloks.py _find_bloks_value: depth-first search that also descends into JSON-looking strings. */
-export function findBloksValue(data: unknown, key: string): unknown {
+export function findBloksValue(data: unknown, key: string, depth = 0): unknown {
+  if (depth > MAX_DEPTH) return null;
   if (isObject(data)) {
     const own = Object.hasOwn(data, key) ? data[key] : undefined;
     if (truthy(own)) return own;
     for (const child of Object.values(data)) {
-      const found = findBloksValue(child, key);
+      const found = findBloksValue(child, key, depth + 1);
       if (truthy(found)) return found;
     }
   } else if (Array.isArray(data)) {
     for (const child of data) {
-      const found = findBloksValue(child, key);
+      const found = findBloksValue(child, key, depth + 1);
       if (truthy(found)) return found;
     }
   } else if (typeof data === "string" && data.length < 10_000 && data.includes(key)) {
@@ -78,24 +89,25 @@ export function findBloksValue(data: unknown, key: string): unknown {
     } catch {
       return null;
     }
-    const found = findBloksValue(parsed, key);
+    const found = findBloksValue(parsed, key, depth + 1);
     if (truthy(found)) return found;
   }
   return null;
 }
 
 /** auth.py _find_login_response_value: like findBloksValue without descending into strings. */
-export function findLoginResponseValue(data: unknown, key: string): unknown {
+export function findLoginResponseValue(data: unknown, key: string, depth = 0): unknown {
+  if (depth > MAX_DEPTH) return null;
   if (isObject(data)) {
     const own = Object.hasOwn(data, key) ? data[key] : undefined;
     if (truthy(own)) return own;
     for (const child of Object.values(data)) {
-      const found = findLoginResponseValue(child, key);
+      const found = findLoginResponseValue(child, key, depth + 1);
       if (truthy(found)) return found;
     }
   } else if (Array.isArray(data)) {
     for (const child of data) {
-      const found = findLoginResponseValue(child, key);
+      const found = findLoginResponseValue(child, key, depth + 1);
       if (truthy(found)) return found;
     }
   }
@@ -139,7 +151,7 @@ function expressionItems(expression: string): string[] {
       if (!item) return [];
     } else if (expression[index] === '"') {
       const decoded = decodeJsonString(expression, index);
-      if (!decoded) return [];
+      if (!decoded || decoded.value === undefined) return [];
       item = expression.slice(index, decoded.end);
     } else {
       const atom = /^[^()\s"]+/.exec(expression.slice(index));
@@ -163,6 +175,7 @@ export function extractContextValue(result: unknown, appId: string, contextKey: 
   const anchor = new RegExp(escapeRegExp(JSON.stringify(appId)), "g");
   const appReference = /(?<![_a-zA-Z0-9])com\.bloks\.[_a-zA-Z0-9.]+/g;
   for (const text of collectStrings(result)) {
+    if (text.length > MAX_SCAN_LENGTH) continue;
     for (const found of text.matchAll(anchor)) {
       const foundEnd = (found.index ?? 0) + found[0].length;
       const mapStart = text.indexOf("(f4i", foundEnd);
@@ -274,7 +287,7 @@ export interface LoginPayload {
  */
 export function extractLoginResponse(result: unknown): LoginPayload | null {
   const action = bloksAction(result);
-  if (action === undefined) return null;
+  if (action === undefined || action.length > MAX_SCAN_LENGTH) return null;
   let index = 0;
   while (index < action.length) {
     if (action[index] !== '"') {
@@ -282,11 +295,8 @@ export function extractLoginResponse(result: unknown): LoginPayload | null {
       continue;
     }
     const decoded = decodeJsonString(action, index);
-    if (!decoded) {
-      index++;
-      continue;
-    }
-    index = Math.max(decoded.end, index + 1);
+    if (!decoded) break; // No closing quote: nothing after this can be a literal.
+    index = decoded.end;
     const value = decoded.value;
     if (typeof value !== "string" || !value.includes("login_response")) continue;
     try {
