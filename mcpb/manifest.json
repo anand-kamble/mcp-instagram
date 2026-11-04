@@ -1,0 +1,55 @@
+{
+  "manifest_version": "0.3",
+  "name": "mcp-instagram",
+  "display_name": "Instagram",
+  "version": "0.0.0",
+  "description": "Read Instagram profiles, posts, stories and comments, and like, comment and follow.",
+  "long_description": "Unofficial Instagram integration built on instagram-private-api. Instagram may flag or restrict accounts used through unofficial APIs, so prefer a secondary account. Write actions (likes, comments, follows) are rate limited by the server. Your password is used only for the login request; the session is saved privately in ~/.config/mcp-instagram (or %APPDATA%\\mcp-instagram on Windows).",
+  "author": {
+    "name": "Anand Kamble",
+    "email": "amkamble@icloud.com",
+    "url": "https://anand-kamble.github.io/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anand-kamble/mcp-instagram.git"
+  },
+  "homepage": "https://github.com/anand-kamble/mcp-instagram#readme",
+  "support": "https://github.com/anand-kamble/mcp-instagram/issues",
+  "license": "ISC",
+  "keywords": ["instagram", "social media", "mcp"],
+  "privacy_policies": ["https://privacycenter.instagram.com/policy"],
+  "server": {
+    "type": "node",
+    "entry_point": "build/server.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/build/server.js"],
+      "env": {
+        "IG_USERNAME": "${user_config.ig_username}",
+        "IG_PASSWORD": "${user_config.ig_password}"
+      }
+    }
+  },
+  "user_config": {
+    "ig_username": {
+      "type": "string",
+      "title": "Instagram username",
+      "description": "The account to log in with.",
+      "required": true
+    },
+    "ig_password": {
+      "type": "string",
+      "title": "Instagram password",
+      "description": "Used only for the login request. If the account uses two-factor authentication, you will be asked for the code in the conversation.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}
