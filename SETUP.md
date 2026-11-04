@@ -32,8 +32,7 @@ Add the following configuration to your `mcpServers` object:
         "/absolute/path/to/mcp-instagram"
       ],
       "env": {
-        "IG_USERNAME": "your_instagram_username",
-        "IG_PASSWORD": "your_instagram_password"
+        "IG_SESSION_ID": "your_sessionid_cookie"
       }
     }
   }
@@ -50,8 +49,7 @@ Add the following configuration to your `mcpServers` object:
         "/absolute/path/to/mcp-instagram/build/server.js"
       ],
       "env": {
-        "IG_USERNAME": "your_instagram_username",
-        "IG_PASSWORD": "your_instagram_password"
+        "IG_SESSION_ID": "your_sessionid_cookie"
       }
     }
   }
@@ -80,8 +78,7 @@ Add the following to the `mcpServers` section:
         "/absolute/path/to/mcp-instagram"
       ],
       "env": {
-        "IG_USERNAME": "your_instagram_username",
-        "IG_PASSWORD": "your_instagram_password"
+        "IG_SESSION_ID": "your_sessionid_cookie"
       }
     }
   }
@@ -98,8 +95,7 @@ Add the following to the `mcpServers` section:
         "/absolute/path/to/mcp-instagram/build/server.js"
       ],
       "env": {
-        "IG_USERNAME": "your_instagram_username",
-        "IG_PASSWORD": "your_instagram_password"
+        "IG_SESSION_ID": "your_sessionid_cookie"
       }
     }
   }
@@ -114,7 +110,7 @@ Add the following to the `mcpServers` section:
 ## Environment Variables (Optional)
 
 Instead of hardcoding credentials in the config, you can use environment variables. The server will automatically load from:
-- Environment variables: `IG_USERNAME`, `IG_PASSWORD`, plus the optional `IG_SESSION_DIR` and `IG_RATE_LIMITS` (see the Configuration section of README.md)
+- Environment variables: `IG_SESSION_ID` (the `sessionid` cookie of a logged-in instagram.com browser session; see "Logging in" in README.md), plus the optional `IG_USERNAME`, `IG_SESSION_DIR` and `IG_RATE_LIMITS` (see the Configuration section of README.md). Password login (`IG_PASSWORD`) is currently unavailable.
 - Or set them in the `env` section of the MCP config (as shown above)
 
 ## Verifying the Setup
@@ -131,8 +127,7 @@ Instead of hardcoding credentials in the config, you can use environment variabl
 - Check that Node.js is accessible from the PATH
 
 ### Authentication errors
-- Verify your Instagram credentials are correct
-- Check if 2FA is enabled (the server supports 2FA)
+- Check that `IG_SESSION_ID` is the current `sessionid` cookie; if you logged out in the browser or changed your password, copy a fresh one
 - Ensure environment variables are set correctly
 
 ### Session persistence

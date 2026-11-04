@@ -8,13 +8,28 @@ MCP (Model Context Protocol) server for Instagram integration.
 - **Comprehensive Access**: View user profiles, timelines, stories, and detailed post information.
 - **Smart Engagement**: Like posts, comments, and follow users directly from your MCP client.
 - **Search & Discovery**: Powerful search capabilities to find accounts and explore content.
-- **Secure Authentication**: Robust login handling with support for Two-Factor Authentication (2FA).
+- **No password needed**: Log in with the session of a browser where you are already logged in to Instagram (including accounts with two-factor authentication).
 - **Developer Ready**: Works with Claude Code, Claude Desktop, VS Code, Cursor, and other MCP-compatible clients.
 
 ## Requirements
 
 - Node.js 22 or newer (`node --version`). Node 20 reached end-of-life on 2026-04-30.
-- An Instagram account (`IG_USERNAME` and `IG_PASSWORD`). Prefer a secondary account; see the disclaimer below.
+- An Instagram account, logged in to instagram.com in a browser. Prefer a secondary account; see the disclaimer below.
+
+## Logging in
+
+> [!WARNING]
+> **Password login does not work at the moment.** In 2026 Instagram changed how its app logs in. The old request now fails (`404` on `qe/sync`, then `needs_upgrade` on `accounts/login`), even when the server presents a current app version, because Instagram now expects a newer login flow that this server does not implement yet. Log in with a browser session instead, as described below.
+
+The server logs in with the session of a browser where you are logged in to Instagram, so it never needs your password or a two-factor code:
+
+1. Log in to [instagram.com](https://www.instagram.com) in a browser (a private window works).
+2. Open the developer tools: **Application** (Chrome, Edge) or **Storage** (Firefox), then **Cookies**, then `https://www.instagram.com`.
+3. Copy the value of the `sessionid` cookie. It starts with your numeric user id, followed by `%3A`.
+4. Set it as `IG_SESSION_ID` in your MCP client's server configuration, as in the examples below.
+5. Close the tab, but **don't log out** in that browser: logging out ends the session the server is using.
+
+The session cookie gives full access to the account, so treat it like a password. The server checks it with Instagram, then saves the session privately (see [Session storage](#session-storage)). If Instagram ends the session (for example after you log out or change your password), copy a fresh cookie into `IG_SESSION_ID` and restart the server. `instagram_logout` ends the session on Instagram, which also logs out the browser session the cookie came from.
 
 ## Installation for MCP Clients
 
@@ -23,12 +38,12 @@ The server runs locally over stdio and is published on npm, so every client belo
 ### Claude Code
 
 ```bash
-claude mcp add --env IG_USERNAME=your_username --env IG_PASSWORD=your_password --transport stdio instagram -- npx -y mcp-instagram
+claude mcp add --env IG_SESSION_ID=your_sessionid_cookie --transport stdio instagram -- npx -y mcp-instagram
 ```
 
 Keep `--transport stdio` between the last `--env` and the server name; otherwise the name is read as another `KEY=value` pair. Add `--scope user` to make the server available in every project.
 
-`claude mcp add` stores the values in your Claude Code config file in plain text. To keep the password out of config files, put the server in a project `.mcp.json` and reference variables from your shell environment instead:
+`claude mcp add` stores the value in your Claude Code config file in plain text. To keep the session cookie out of config files, put the server in a project `.mcp.json` and reference variables from your shell environment instead:
 
 ```json
 {
@@ -37,8 +52,7 @@ Keep `--transport stdio` between the last `--env` and the server name; otherwise
       "command": "npx",
       "args": ["-y", "mcp-instagram"],
       "env": {
-        "IG_USERNAME": "${IG_USERNAME}",
-        "IG_PASSWORD": "${IG_PASSWORD}"
+        "IG_SESSION_ID": "${IG_SESSION_ID}"
       }
     }
   }
@@ -47,7 +61,7 @@ Keep `--transport stdio` between the last `--env` and the server name; otherwise
 
 ### Claude Desktop
 
-**One-click bundle.** Starting with the first release after 0.0.6, each [GitHub release](https://github.com/anand-kamble/mcp-instagram/releases) includes `mcp-instagram-<version>.mcpb`. Open the file (double-click, or drag it into Claude Desktop's **Settings > Extensions**). Claude Desktop asks for your Instagram username and password, masks the password, and runs the server with its built-in Node.js, so no separate Node install or JSON editing is needed. To build the bundle yourself: `yarn build && node scripts/pack-mcpb.mjs`.
+**One-click bundle.** Starting with the first release after 0.0.6, each [GitHub release](https://github.com/anand-kamble/mcp-instagram/releases) includes `mcp-instagram-<version>.mcpb`. Open the file (double-click, or drag it into Claude Desktop's **Settings > Extensions**). Claude Desktop asks for your Instagram session cookie (see [Logging in](#logging-in)), masks it, and runs the server with its built-in Node.js, so no separate Node install or JSON editing is needed. To build the bundle yourself: `yarn build && node scripts/pack-mcpb.mjs`.
 
 **Manual configuration:**
 
@@ -68,15 +82,14 @@ Keep `--transport stdio` between the last `--env` and the server name; otherwise
         "mcp-instagram"
       ],
       "env": {
-        "IG_USERNAME": "your_instagram_username",
-        "IG_PASSWORD": "your_instagram_password"
+        "IG_SESSION_ID": "your_sessionid_cookie"
       }
     }
   }
 }
 ```
 
-3. **Replace the credentials** with your Instagram username and password.
+3. **Replace `your_sessionid_cookie`** with your session cookie; see [Logging in](#logging-in).
 
 4. **Restart Claude Desktop** for the changes to take effect.
 You should then see the Instagram MCP server in the list of available tools.
@@ -87,20 +100,15 @@ You should then see the Instagram MCP server in the list of available tools.
 
 ### VS Code
 
-Add this to `.vscode/mcp.json` in your workspace. VS Code prompts for the username and password when the server starts and masks the password, so neither is written into the file:
+Add this to `.vscode/mcp.json` in your workspace. VS Code prompts for the session cookie when the server starts and masks it, so it is not written into the file:
 
 ```json
 {
   "inputs": [
     {
       "type": "promptString",
-      "id": "ig-username",
-      "description": "Instagram username"
-    },
-    {
-      "type": "promptString",
-      "id": "ig-password",
-      "description": "Instagram password",
+      "id": "ig-session-id",
+      "description": "Instagram sessionid cookie",
       "password": true
     }
   ],
@@ -110,8 +118,7 @@ Add this to `.vscode/mcp.json` in your workspace. VS Code prompts for the userna
       "command": "npx",
       "args": ["-y", "mcp-instagram"],
       "env": {
-        "IG_USERNAME": "${input:ig-username}",
-        "IG_PASSWORD": "${input:ig-password}"
+        "IG_SESSION_ID": "${input:ig-session-id}"
       }
     }
   }
@@ -136,15 +143,14 @@ Add this to `.vscode/mcp.json` in your workspace. VS Code prompts for the userna
         "mcp-instagram"
       ],
       "env": {
-        "IG_USERNAME": "your_instagram_username",
-        "IG_PASSWORD": "your_instagram_password"
+        "IG_SESSION_ID": "your_sessionid_cookie"
       }
     }
   }
 }
 ```
 
-3. **Replace the credentials** with your Instagram username and password.
+3. **Replace `your_sessionid_cookie`** with your session cookie; see [Logging in](#logging-in).
 
 4. **Restart Cursor** for the changes to take effect.
 
@@ -166,8 +172,7 @@ Then point your client at the built entry point instead of `npx`:
       "command": "node",
       "args": ["/absolute/path/to/mcp-instagram/bin/insta-mcp.js"],
       "env": {
-        "IG_USERNAME": "your_instagram_username",
-        "IG_PASSWORD": "your_instagram_password"
+        "IG_SESSION_ID": "your_sessionid_cookie"
       }
     }
   }
@@ -180,8 +185,9 @@ All configuration is through environment variables set in your MCP client's serv
 
 | Variable | Required | Description |
 |---|---|---|
-| `IG_USERNAME` | For login | Instagram username. Every tool except login and logout needs a session, either from these credentials or a saved session. |
-| `IG_PASSWORD` | For login | Instagram password. Sent only in the login request and never written to disk; like any environment variable, it stays in the server process's memory. |
+| `IG_SESSION_ID` | Yes, unless a session is already saved | The `sessionid` cookie of a logged-in instagram.com browser session; see [Logging in](#logging-in). Every tool except login and logout needs a session. |
+| `IG_USERNAME` | No | Your Instagram username. If set, the server refuses a session that belongs to a different account. |
+| `IG_PASSWORD` | No | For password login, which is [currently unavailable](#logging-in). Never written to disk. |
 | `IG_SESSION_DIR` | No | Directory for the saved session. Default: `$XDG_CONFIG_HOME/mcp-instagram`, else `~/.config/mcp-instagram` (macOS and Linux), or `%APPDATA%\mcp-instagram` (Windows). Must be owned by you and not writable by other users; the server refuses shared directories such as `/tmp`. |
 | `IG_RATE_LIMITS` | No | JSON overrides for the write-action limits, for example `{"like":{"perHour":100}}`. See [Rate limits](#rate-limits). |
 
@@ -191,28 +197,28 @@ After a successful login, the server saves the Instagram session (cookies and de
 
 Versions up to 0.0.6 stored the session in `data/session.json` inside the package directory (under `npx`, that is the npm cache). On first start, the current version moves such a file to the new location and removes the old copy. This happens only when `IG_SESSION_DIR` is not set, and only for the package directory, never the directory your MCP client runs in.
 
-If `IG_USERNAME` is set and the saved session belongs to a different account (for example after switching accounts), the server discards the saved session and logs in again with the configured credentials.
+If `IG_USERNAME` is set and the saved session (or `IG_SESSION_ID`) belongs to a different account, the server refuses it. When `IG_SESSION_ID` changes, the server logs in with the new value instead of the saved session. Session files written by earlier versions are converted on first start and keep you logged in.
 
 ### Rate limits
 
-Instagram restricts accounts that like, comment or follow in fast bursts, and locks accounts behind a security checkpoint after repeated password logins. To keep an agent loop from getting the account blocked, the server limits write actions and password logins per process. When a limit is reached, the tool returns an error saying when to retry, and nothing is sent to Instagram.
+Instagram restricts accounts that like, comment or follow in fast bursts, and locks accounts behind a security checkpoint after repeated logins. To keep an agent loop from getting the account blocked, the server limits write actions and logins per process. When a limit is reached, the tool returns an error saying when to retry, and nothing is sent to Instagram.
 
 | Action | Per minute | Per hour | Per day |
 |---|---|---|---|
 | like / unlike (posts and comments) | 10 | 60 | 500 |
 | comment | 3 | 20 | 100 |
 | follow / unfollow | 5 | 30 | 150 |
-| password login (including the automatic login at startup) | 1 | 5 | 10 |
+| login (including the automatic login at startup) | 1 | 5 | 10 |
 
 Instagram does not publish its limits, so these defaults are deliberately conservative rather than derived from Instagram's numbers. Override any subset with `IG_RATE_LIMITS`, using the keys `like`, `comment`, `follow`, `login` and `perMinute`, `perHour`, `perDay`. Counters are kept in memory and reset when the server restarts.
 
 ### Security Notes
 
-- **Never commit your credentials** to version control. Prefer the Claude Code `${VAR}` or VS Code `inputs` setups above over plain-text passwords in config files.
+- **Never commit your session cookie or credentials** to version control. Prefer the Claude Code `${VAR}` or VS Code `inputs` setups above over plain-text values in config files.
 - Credentials are never requested from the LLM. They come only from environment variables.
 - The saved session is a credential too; see [Session storage](#session-storage).
 - All Instagram traffic uses verified TLS. The underlying library disables certificate checks by default; this server turns them back on for every request.
-- Two-factor codes are the only thing the server ever asks you for; see [Two-factor authentication](#two-factor-authentication).
+- The server never asks you or the assistant for your password or session cookie; they come only from its configuration.
 - Text in tool results (captions, comments, bios, usernames) is written by other Instagram users. The server tells the assistant to treat it as data, not instructions, but review write actions the assistant proposes.
 
 ### Verifying Installation
@@ -245,12 +251,7 @@ Every tool except login and logout needs an active session. Paginated tools retu
 
 ### Two-factor authentication
 
-`instagram_login` takes no arguments and never asks for your password; it uses `IG_USERNAME` and `IG_PASSWORD`. If Instagram asks for a verification code:
-
-- The server opens a one-time page on your own machine (`http://127.0.0.1:<port>/2fa/...`) where you type the code, so it never passes through the MCP client or the assistant. Clients that support MCP URL elicitation (for example Claude Code in an interactive session) offer to open it in your browser; in other clients the assistant gives you the link. The page accepts one code, expires after 10 minutes, and closes when you log out or start a new login. A malformed code can be corrected on the page; a code Instagram rejects ends the attempt, and calling `instagram_login` again starts a new one.
-- If you cannot open the page, tell the assistant the code and it calls `instagram_complete_2fa` with it (the code then passes through the conversation). If you decline the prompt to open the page, the login stops and the assistant is told not to ask again.
-
-If a login is already waiting for a code (for example from the automatic login at startup), `instagram_login` reuses it rather than triggering another code.
+With `IG_SESSION_ID`, two-factor authentication happens in the browser when you log in there, so the server never needs a code. The server's own two-factor flow (a form for the code in clients that support MCP elicitation, with `instagram_complete_2fa` as a fallback) applies to password login, which is [currently unavailable](#logging-in).
 
 ## ⚠️ Legal Disclaimer and Risks
 
@@ -262,7 +263,7 @@ This software utilizes unofficial Instagram API access methods and is not affili
 
 1. **Account Restrictions:** Use of this software may result in your Instagram account being flagged for suspicious or automated activity. Instagram may issue warnings, temporarily restrict account functionality, or permanently suspend or delete your account.
 
-2. **No Guarantees:** The functionality of this software is not guaranteed and may cease to work at any time due to changes in Instagram's platform, security measures, or policies. It is built on [instagram-private-api](https://github.com/dilame/instagram-private-api), whose last release (1.46.1) was published in March 2024; there is no maintained Node.js replacement, so Instagram-side changes may break tools without a fix being available.
+2. **No Guarantees:** The functionality of this software is not guaranteed and may cease to work at any time due to changes in Instagram's platform, security measures, or policies. It talks to Instagram's private mobile API through its own client (a TypeScript port of parts of [instagrapi](https://github.com/subzeroid/instagrapi), see `NOTICE`). Instagram changes that API without notice, so tools can stop working until the client is updated.
 
 ### Limitation of Liability
 

@@ -128,8 +128,7 @@ Add to `.cursor/mcp.json` or `~/.cursor/mcp.json`:
         "/absolute/path/to/mcp-instagram/bin/insta-mcp.js"
       ],
       "env": {
-        "IG_USERNAME": "your_instagram_username",
-        "IG_PASSWORD": "your_instagram_password"
+        "IG_SESSION_ID": "your_sessionid_cookie"
       }
     }
   }
@@ -152,8 +151,7 @@ Add to your Claude Desktop config file:
         "/absolute/path/to/mcp-instagram/bin/insta-mcp.js"
       ],
       "env": {
-        "IG_USERNAME": "your_instagram_username",
-        "IG_PASSWORD": "your_instagram_password"
+        "IG_SESSION_ID": "your_sessionid_cookie"
       }
     }
   }
@@ -165,8 +163,7 @@ Add to your Claude Desktop config file:
 You can set environment variables instead of using the config file:
 
 ```bash
-export IG_USERNAME="your_instagram_username"
-export IG_PASSWORD="your_instagram_password"
+export IG_SESSION_ID="your_sessionid_cookie"
 npx mcp-instagram
 ```
 
