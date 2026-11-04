@@ -117,6 +117,16 @@ export function sessionStateFromJson(raw: unknown, now: number = Date.now()): Se
       ...(isString(raw.rur) ? { rur: raw.rur } : {}),
       ...(isString(raw.wwwClaim) ? { wwwClaim: raw.wwwClaim } : {}),
       ...(isString(raw.importedSessionId) ? { importedSessionId: raw.importedSessionId } : {}),
+      ...(isObject(raw.usdid) && isString(raw.usdid.usdid) && isString(raw.usdid.kid) && isString(raw.usdid.privateKeyPem)
+        ? {
+            usdid: {
+              usdid: raw.usdid.usdid,
+              kid: raw.usdid.kid,
+              privateKeyPem: raw.usdid.privateKeyPem,
+              registered: raw.usdid.registered === true,
+            },
+          }
+        : {}),
       ...(isString(raw.userId) ? { userId: raw.userId } : {}),
       ...(isString(raw.username) ? { username: raw.username } : {}),
     };

@@ -7,8 +7,12 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { Agent, fetch as undiciFetch } from "undici";
 import { APP_ID, createDeviceProfile, userAgent, withCurrentAppProfile } from "./device.js";
+import { formEncode, signedBody } from "./encoding.js";
+import { createH2Transport, fetchTransport } from "./transport.js";
+import type { Transport } from "./transport.js";
+import { createUsdid, UsdidHeader } from "./usdid.js";
+import type { UsdidState } from "./usdid.js";
 import {
   IgActionSpamError,
   IgBadPasswordError,
@@ -38,8 +42,19 @@ export interface InstagramClientOptions {
   session?: SessionState;
   /** Per-request timeout. */
   timeoutMs?: number;
-  /** Injected for tests; defaults to undici's fetch with an HTTP/2-capable agent. */
+  /** HTTP transport; defaults to HTTP/2 over TLS 1.3 (createH2Transport). */
+  transport?: Transport;
+  /** Convenience for tests: a fetch implementation wrapped as the transport. */
   fetch?: typeof fetch;
+}
+
+/** Value of a header, matched case-insensitively. */
+function headerValue(headers: Record<string, string>, name: string): string | undefined {
+  const lower = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === lower) return value;
+  }
+  return undefined;
 }
 
 /** Maps an Instagram error response to the matching error class. */
@@ -170,8 +185,9 @@ export class InstagramClient {
   private passwordKey?: PasswordEncryptionKey;
   private readonly pigeonSessionId = `UFS-${randomUUID()}-1`;
   private readonly timeoutMs: number;
-  private readonly fetchImpl: typeof fetch;
-  private readonly dispatcher?: Agent;
+  private readonly transport: Transport;
+  private usdidState?: UsdidState;
+  private usdidHeader?: UsdidHeader;
 
   constructor(options: InstagramClientOptions = {}) {
     const session = options.session;
@@ -184,14 +200,29 @@ export class InstagramClient {
     this.userIdValue = session?.userId ?? session?.authorization?.ds_user_id;
     this.usernameValue = session?.username;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    if (options.fetch) {
-      this.fetchImpl = options.fetch;
-    } else {
-      // allowH2 offers HTTP/2 via ALPN, as the app does. TLS is verified (undici default).
-      // undici's own fetch, so the agent and fetch come from the same undici version.
-      this.dispatcher = new Agent({ allowH2: true, connect: { timeout: this.timeoutMs } });
-      this.fetchImpl = undiciFetch as unknown as typeof fetch;
+    this.transport = options.transport ?? (options.fetch ? fetchTransport(options.fetch) : createH2Transport());
+    if (session?.usdid) {
+      this.usdidState = { ...session.usdid };
+      this.usdidHeader = new UsdidHeader(this.usdidState);
     }
+  }
+
+  /** X-MID / machine_id, once Instagram has assigned one. */
+  get machineId(): string | undefined {
+    return this.mid;
+  }
+
+  /** The device's USDID key, created on first use. */
+  ensureUsdid(): UsdidState {
+    if (!this.usdidState) {
+      this.usdidState = createUsdid();
+      this.usdidHeader = new UsdidHeader(this.usdidState);
+    }
+    return this.usdidState;
+  }
+
+  markUsdidRegistered(): void {
+    if (this.usdidState) this.usdidState.registered = true;
   }
 
   /** Numeric id of the logged-in account, if any. */
@@ -257,12 +288,13 @@ export class InstagramClient {
       ...(this.wwwClaim ? { wwwClaim: this.wwwClaim } : {}),
       ...(this.userIdValue ? { userId: this.userIdValue } : {}),
       ...(this.usernameValue ? { username: this.usernameValue } : {}),
+      ...(this.usdidState ? { usdid: { ...this.usdidState } } : {}),
     };
   }
 
   /** Releases pooled connections. */
   async close(): Promise<void> {
-    await this.dispatcher?.close();
+    await this.transport.close?.();
   }
 
   /** Headers the Android app sends on every private-API request. */
@@ -271,6 +303,7 @@ export class InstagramClient {
     const lang = d.locale.replace("_", "-");
     const headers: Record<string, string> = {
       "User-Agent": userAgent(d),
+      Accept: "*/*",
       "Accept-Language": lang === "en-US" ? "en-US" : `${lang}, en-US`,
       "X-IG-App-Locale": d.locale,
       "X-IG-Device-Locale": d.locale,
@@ -295,13 +328,34 @@ export class InstagramClient {
       Priority: "u=3",
       "Accept-Encoding": "gzip, deflate",
       "X-FB-HTTP-Engine": "Tigon/MNS/TCP",
+      "X-Tigon-Is-Retry": "False",
+      "X-Zero-Balance": "INIT",
+      "X-Zero-State": "unknown",
+      "Zero-HTTP-Network-Interface": "wifi",
       "X-FB-Client-IP": "True",
       "X-FB-Server-Cluster": "True",
       "IG-INTENDED-USER-ID": this.userIdValue ?? "0",
+      "X-IG-Nav-Chain": "9MV:self_profile:2,ProfileMediaTabFragment:self_profile:3,9Xf:self_following:4",
     };
     if (this.mid) headers["X-MID"] = this.mid;
-    if (this.userIdValue) headers["IG-U-DS-USER-ID"] = this.userIdValue;
+    const uid = this.userIdValue;
+    if (uid) {
+      // instagrapi derives these region hints from the user id with fixed
+      // suffixes (private.py:318-341); the server's ig-set-ig-u-rur wins.
+      const now = Math.floor(Date.now() / 1000);
+      const nextYear = now + 31_536_000;
+      headers["IG-U-DS-USER-ID"] = uid;
+      headers["IG-U-IG-DIRECT-REGION-HINT"] =
+        `LLA,${uid},${nextYear}:01f7bae7d8b131877d8e0ae1493252280d72f6d0d554447cb1dc9049b6b2c507c08605b7`;
+      headers["IG-U-SHBID"] =
+        `12695,${uid},${nextYear}:01f778d9c9f7546cf3722578fbf9b85143cd6e5132723e5c93f40f55ca0459c8ef8a0d9f`;
+      headers["IG-U-SHBTS"] =
+        `${now},${uid},${nextYear}:01f7ace11925d0388080078d0282b75b8059844855da27e23c90a362270fddfb3fae7e28`;
+      headers["IG-U-RUR"] =
+        `RVA,${uid},${nextYear}:01f7f627f9ae4ce2874b2e04463efdb184340968b1b006fa88cb4cc69a942a04201e544c`;
+    }
     if (this.rur) headers["IG-U-RUR"] = this.rur;
+    if (this.usdidHeader) headers["X-Meta-Usdid"] = this.usdidHeader.value();
     if (this.authorization) headers.Authorization = formatAuthorizationHeader(this.authorization);
     const cookie = Object.entries(this.cookies)
       .map(([name, value]) => `${name}=${value}`)
@@ -310,27 +364,34 @@ export class InstagramClient {
     return headers;
   }
 
-  /** Learns session state from Instagram's ig-set-* response headers and cookies. */
-  private absorbResponse(headers: Headers): void {
-    const auth = parseAuthorizationHeader(headers.get("ig-set-authorization"));
+  /**
+   * Learns session state from Instagram's ig-set-* headers and cookies, from a
+   * response or from the login payload embedded in a CAA response.
+   */
+  absorbResponse(headers: Record<string, string>, setCookies: string[] = []): void {
+    const auth = parseAuthorizationHeader(headerValue(headers, "ig-set-authorization"));
     if (auth) {
       this.authorization = auth;
       this.userIdValue = auth.ds_user_id;
     }
-    const mid = headers.get("ig-set-x-mid");
+    const mid = headerValue(headers, "ig-set-x-mid");
     if (mid) this.mid = mid;
-    const rur = headers.get("ig-set-ig-u-rur");
+    const rur = headerValue(headers, "ig-set-ig-u-rur");
     if (rur) this.rur = rur;
-    const claim = headers.get("x-ig-set-www-claim");
+    const claim = headerValue(headers, "x-ig-set-www-claim");
     if (claim) this.wwwClaim = claim;
-    const dsUserId = headers.get("ig-set-ig-u-ds-user-id");
+    const dsUserId = headerValue(headers, "ig-set-ig-u-ds-user-id");
     if (dsUserId && dsUserId !== "0") this.userIdValue = dsUserId;
-    const keyId = headers.get("ig-set-password-encryption-key-id");
-    const publicKey = headers.get("ig-set-password-encryption-pub-key");
+    const keyId = headerValue(headers, "ig-set-password-encryption-key-id");
+    const publicKey = headerValue(headers, "ig-set-password-encryption-pub-key");
     if (keyId && publicKey && Number.isInteger(Number(keyId))) {
       this.passwordKey = { keyId: Number(keyId), publicKey };
     }
-    applySetCookies(this.cookies, headers.getSetCookie?.() ?? []);
+    applySetCookies(this.cookies, setCookies);
+    if (!this.mid && this.cookies.mid) this.mid = this.cookies.mid;
+    if (!this.userIdValue && this.cookies.sessionid && this.cookies.ds_user_id) {
+      this.userIdValue = this.cookies.ds_user_id;
+    }
   }
 
   /**
@@ -339,7 +400,9 @@ export class InstagramClient {
    */
   async request<T = Record<string, unknown>>(req: IgRequest): Promise<T> {
     const method = req.method ?? (req.form ? "POST" : "GET");
-    const url = new URL(`https://${API_HOST}/api/v1/${req.path.replace(/^\/+/, "")}`);
+    const host = req.domain ?? API_HOST;
+    const path = req.path.startsWith("/") ? req.path : `/api/v1/${req.path}`;
+    const url = new URL(`https://${host}${path}`);
     for (const [key, value] of Object.entries(req.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
@@ -349,45 +412,43 @@ export class InstagramClient {
     if (method === "POST") {
       headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8";
       const form = req.form ?? {};
-      const params = new URLSearchParams();
-      if (req.signed ?? true) {
-        params.set("signed_body", `SIGNATURE.${JSON.stringify(form)}`);
-      } else {
-        for (const [key, value] of Object.entries(form)) {
-          if (value !== undefined) params.set(key, typeof value === "string" ? value : JSON.stringify(value));
-        }
-      }
-      body = params.toString();
+      body = (req.signed ?? true) ? signedBody(form) : formEncode(form);
     }
 
-    let response: Response;
-    let text: string;
+    let response;
     try {
-      response = await this.fetchImpl(url, {
+      response = await this.transport({
         method,
+        url: url.href,
         headers,
         body,
         signal: AbortSignal.timeout(this.timeoutMs),
-        ...(this.dispatcher ? { dispatcher: this.dispatcher } : {}),
-      } as RequestInit);
-      text = await response.text();
+      });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       throw new IgNetworkError(`${method} ${req.path} failed: ${reason}`, { cause: error });
     }
 
-    this.absorbResponse(response.headers);
+    this.absorbResponse(response.headers, response.setCookie);
+    const text = response.body;
 
-    let parsed: Record<string, unknown> | undefined;
-    try {
-      const value: unknown = parseJsonPreservingBigInts(text);
-      if (value && typeof value === "object" && !Array.isArray(value)) parsed = value as Record<string, unknown>;
-    } catch {
-      parsed = undefined;
+    const parseObject = (candidate: string): Record<string, unknown> | undefined => {
+      try {
+        const value: unknown = parseJsonPreservingBigInts(candidate);
+        return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    let parsed = parseObject(text);
+    if (!parsed && req.ndjson) {
+      // GraphQL may answer with NDJSON; the first line carries the result.
+      const firstLine = text.split(/\r?\n/).find((line) => line.trim());
+      if (firstLine) parsed = parseObject(firstLine);
     }
 
     const info: IgResponseInfo = { status: response.status, path: req.path, body: parsed ?? {} };
-    if (!response.ok) {
+    if (response.status < 200 || response.status >= 300) {
       throw toIgError(info, text);
     }
     if (!parsed) {

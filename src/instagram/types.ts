@@ -6,7 +6,7 @@
 export interface IgRequest {
   /** Defaults to POST when `form` is given, otherwise GET. */
   method?: "GET" | "POST";
-  /** Path relative to /api/v1/, e.g. "users/25025320/info/". No leading slash. */
+  /** Path relative to /api/v1/, e.g. "users/25025320/info/". A leading "/" makes it absolute (e.g. "/graphql_www"). */
   path: string;
   /** Query string parameters; undefined values are dropped. */
   query?: Record<string, string | number | boolean | undefined>;
@@ -20,6 +20,10 @@ export interface IgRequest {
   signed?: boolean;
   /** Extra headers for this request only (e.g. X-FB-Friendly-Name). */
   headers?: Record<string, string>;
+  /** Host to call; defaults to i.instagram.com. The CAA login uses b.i.instagram.com. */
+  domain?: string;
+  /** Accept an NDJSON body and use its first JSON line (GraphQL). */
+  ndjson?: boolean;
 }
 
 /** Emulated Android device. Persisted with the session so it stays stable. */
@@ -72,6 +76,8 @@ export interface SessionState {
   wwwClaim?: string;
   /** The IG_SESSION_ID value this session was imported from, if any. */
   importedSessionId?: string;
+  /** USDID device key used by the CAA login. */
+  usdid?: { usdid: string; kid: string; privateKeyPem: string; registered: boolean };
   /** Logged-in user. */
   userId?: string;
   username?: string;
