@@ -10,7 +10,9 @@ import {
   IgLoginTwoFactorRequiredError,
   IgUserHasLoggedOutError,
 } from "instagram-private-api";
+import { getConfig } from "../config/index.js";
 import type { TwoFactorAuthInfo } from "../types/index.js";
+import { consumeRateLimit } from "../utils/rateLimit.js";
 import { loadSession, saveSession, deleteSession } from "./session.js";
 
 /**
@@ -34,6 +36,54 @@ export function isInvalidSessionError(error: unknown): boolean {
  * connection, which would hang tool calls (and startup) with it.
  */
 export const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Creates an IgApiClient that verifies TLS certificates and times out.
+ *
+ * instagram-private-api passes `strictSSL: false` on every request, and its
+ * built-in options take precedence over `request.defaults`, so certificate
+ * checks can only be turned back on per request. Without them, anyone on the
+ * network path could read the session cookies, or swap the password
+ * encryption key Instagram sends and recover the password.
+ */
+export function createIgClient(): IgApiClient {
+  const client = new IgApiClient();
+  client.request.defaults.timeout = REQUEST_TIMEOUT_MS;
+  const send = client.request.send.bind(client.request);
+  client.request.send = ((options, onlyCheckHttpStatus) =>
+    send({ ...options, strictSSL: true }, onlyCheckHttpStatus)) as typeof client.request.send;
+  return client;
+}
+
+function normalizeUsername(value: string): string {
+  return value.trim().replace(/^@/, "").toLowerCase();
+}
+
+/**
+ * The configured IG_USERNAME when it is an Instagram username. Instagram also
+ * accepts an email address or phone number as the login name; those cannot be
+ * compared with a session's username, so they return undefined.
+ */
+function configuredUsername(): string | undefined {
+  const raw = getConfig().igpapi?.username;
+  if (!raw) {
+    return undefined;
+  }
+  const name = normalizeUsername(raw);
+  if (!/^[a-z0-9._]{1,30}$/.test(name) || /^\d+$/.test(name)) {
+    return undefined;
+  }
+  return name;
+}
+
+/** Username recorded in the session's `ds_user` cookie, if present. */
+function sessionCookieUsername(client: IgApiClient): string | undefined {
+  try {
+    return normalizeUsername(client.state.cookieUsername);
+  } catch {
+    return undefined;
+  }
+}
 
 /** Message of the error thrown by a login that a logout overtook. */
 export const LOGIN_CANCELLED_MESSAGE = "Login was cancelled by a logout.";
@@ -60,8 +110,7 @@ export class IGPAPIClient {
     }
 
     const epoch = this.authEpoch;
-    const client = new IgApiClient();
-    client.request.defaults.timeout = REQUEST_TIMEOUT_MS;
+    const client = createIgClient();
     this.client = client;
     this.initialized = true;
 
@@ -70,10 +119,24 @@ export class IGPAPIClient {
     if (!sessionLoaded || epoch !== this.authEpoch) {
       return;
     }
+
+    // A saved session for a different account than IG_USERNAME (switched
+    // accounts, or a planted file) must not silently become the active one.
+    const expected = configuredUsername();
+    const cookieUser = sessionCookieUsername(client);
+    if (expected && cookieUser && cookieUser !== expected) {
+      await this.discardRestoredSession(epoch, cookieUser, expected);
+      return;
+    }
+
     try {
       // Verify session is still valid
       const user = await client.account.currentUser();
       if (epoch !== this.authEpoch) {
+        return;
+      }
+      if (expected && user.username && normalizeUsername(user.username) !== expected) {
+        await this.discardRestoredSession(epoch, normalizeUsername(user.username), expected);
         return;
       }
       this.username = user.username ?? null;
@@ -94,6 +157,19 @@ export class IGPAPIClient {
         );
         this.loggedIn = true;
       }
+    }
+  }
+
+  /** Deletes a restored session that belongs to another account and starts from a clean client. */
+  private async discardRestoredSession(epoch: number, found: string, expected: string): Promise<void> {
+    console.error(
+      `[mcp-instagram] The saved session belongs to @${found}, not IG_USERNAME (@${expected}); discarding it.`
+    );
+    await deleteSession();
+    if (epoch === this.authEpoch) {
+      this.client = createIgClient();
+      this.loggedIn = false;
+      this.username = null;
     }
   }
 
@@ -132,12 +208,18 @@ export class IGPAPIClient {
     }
     const epoch = this.authEpoch;
 
+    // Every call is a fresh password login (and possibly an SMS). Instagram
+    // checkpoints accounts that do this repeatedly, so cap it like writes.
+    consumeRateLimit("login");
+
     // Generate device based on username
     client.state.generateDevice(username);
 
+    let loggedInAs: string | undefined;
     try {
       // Perform login
-      await client.account.login(username, password);
+      const user = await client.account.login(username, password);
+      loggedInAs = user?.username;
     } catch (error: unknown) {
       if (epoch !== this.authEpoch) {
         throw new Error(LOGIN_CANCELLED_MESSAGE);
@@ -165,7 +247,7 @@ export class IGPAPIClient {
       throw error;
     }
 
-    await this.commitLogin(client, epoch, username);
+    await this.commitLogin(client, epoch, loggedInAs || username);
   }
 
   /**
