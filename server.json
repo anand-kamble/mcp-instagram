@@ -22,7 +22,7 @@
       "environmentVariables": [
         {
           "name": "IG_USERNAME",
-          "description": "Instagram username. Needed to log in; public profiles can be read without it.",
+          "description": "Instagram username. Needed to log in; every tool except login and logout needs a session.",
           "isRequired": false
         },
         {

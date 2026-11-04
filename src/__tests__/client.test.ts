@@ -2,7 +2,12 @@
  * Unit tests for IGPAPIClient session-validation helpers
  */
 
-import { IgCookieNotFoundError, IgLoginRequiredError, IgNetworkError } from "instagram-private-api";
+import {
+  IgCookieNotFoundError,
+  IgLoginRequiredError,
+  IgNetworkError,
+  IgUserHasLoggedOutError,
+} from "instagram-private-api";
 import { isInvalidSessionError } from "../igpapi/client.js";
 
 function fakeResponse(statusCode: number, message: string) {
@@ -15,8 +20,9 @@ function fakeResponse(statusCode: number, message: string) {
 }
 
 describe("isInvalidSessionError", () => {
-  it("treats login_required and missing cookies as an invalid session", () => {
+  it("treats login_required, user_has_logged_out and missing cookies as an invalid session", () => {
     expect(isInvalidSessionError(new IgLoginRequiredError(fakeResponse(403, "login_required")))).toBe(true);
+    expect(isInvalidSessionError(new IgUserHasLoggedOutError(fakeResponse(403, "user_has_logged_out")))).toBe(true);
     expect(isInvalidSessionError(new IgCookieNotFoundError("ds_user_id"))).toBe(true);
   });
 

@@ -176,7 +176,7 @@ All configuration is through environment variables set in your MCP client's serv
 
 | Variable | Required | Description |
 |---|---|---|
-| `IG_USERNAME` | For login | Instagram username. Public profiles can be read without logging in. |
+| `IG_USERNAME` | For login | Instagram username. Every tool except login and logout needs a session, either from these credentials or a saved session. |
 | `IG_PASSWORD` | For login | Instagram password. Used only for the login request; the server keeps the session cookies, not the password. |
 | `IG_SESSION_DIR` | No | Directory for the saved session. Default: `$XDG_CONFIG_HOME/mcp-instagram`, else `~/.config/mcp-instagram` (macOS and Linux), or `%APPDATA%\mcp-instagram` (Windows). |
 | `IG_RATE_LIMITS` | No | JSON overrides for the write-action limits, for example `{"like":{"perHour":100}}`. See [Rate limits](#rate-limits). |

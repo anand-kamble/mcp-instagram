@@ -8,18 +8,24 @@ import {
   IgCookieNotFoundError,
   IgLoginRequiredError,
   IgLoginTwoFactorRequiredError,
+  IgUserHasLoggedOutError,
 } from "instagram-private-api";
 import type { TwoFactorAuthInfo } from "../types/index.js";
 import { loadSession, saveSession, deleteSession } from "./session.js";
 
 /**
- * True when Instagram rejected the restored session itself. Other failures
+ * True when Instagram rejected the restored session itself (login_required,
+ * user_has_logged_out, or a missing session cookie). Other failures
  * (network errors, rate limits, 5xx) say nothing about the session, so it is
  * kept: discarding it forces a fresh password login, which is what tends to
  * trigger Instagram's suspicious-login checkpoints.
  */
 export function isInvalidSessionError(error: unknown): boolean {
-  return error instanceof IgLoginRequiredError || error instanceof IgCookieNotFoundError;
+  return (
+    error instanceof IgLoginRequiredError ||
+    error instanceof IgUserHasLoggedOutError ||
+    error instanceof IgCookieNotFoundError
+  );
 }
 
 export class IGPAPIClient {
