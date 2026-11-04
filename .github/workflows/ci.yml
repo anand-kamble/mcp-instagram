@@ -6,17 +6,28 @@ on:
   pull_request:
     branches: [main, master]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Supported range is engines.node in package.json (>=22).
+        node-version: ['22', '24']
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/checkout@v7
         with:
-          node-version: '20'
+          persist-credentials: false
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
 
       - name: Enable Corepack (for Yarn)
         run: corepack enable
@@ -29,11 +40,11 @@ jobs:
 
       - name: Run tests
         run: yarn test
-        env:
-          NODE_OPTIONS: '--experimental-vm-modules'
 
       - name: Check build output
         run: |
           test -f build/server.js || exit 1
           echo "Build successful"
 
+      - name: Check package contents
+        run: npm pack --dry-run

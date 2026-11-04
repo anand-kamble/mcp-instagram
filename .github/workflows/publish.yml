@@ -18,16 +18,21 @@ jobs:
     runs-on: ubuntu-latest
     environment: mc-instagram-build
     permissions:
-      contents: write
+      contents: read
+      # Required for npm provenance attestations.
       id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
+          # No dependency cache in the release job, to rule out cache poisoning.
+          package-manager-cache: false
           registry-url: 'https://registry.npmjs.org'
 
       - name: Enable Corepack (for Yarn)
@@ -41,8 +46,6 @@ jobs:
 
       - name: Run tests
         run: yarn test
-        env:
-          NODE_OPTIONS: '--experimental-vm-modules'
 
       - name: Extract version from tag (if pushed tag)
         if: startsWith(github.ref, 'refs/tags/v')
@@ -62,13 +65,13 @@ jobs:
         if: github.event_name == 'release'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: npm publish --access public --provenance
 
       - name: Publish to npm (on tag push)
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: npm publish --access public --provenance
 
       - name: Publish to npm (manual workflow)
         if: github.event_name == 'workflow_dispatch'
@@ -76,5 +79,5 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm version ${{ github.event.inputs.version }} --no-git-tag-version --allow-same-version
-          npm publish --access public
+          npm publish --access public --provenance
 
