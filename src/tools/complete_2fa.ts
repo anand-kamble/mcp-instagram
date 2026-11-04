@@ -17,12 +17,12 @@ export function registerCompleteTwoFactor(server: McpServer): void {
       title: "Complete two-factor login",
       description:
         "Finish an Instagram login that is waiting for a two-factor code. Call this only after instagram_login " +
-        "said a code is required, with the code the user received by SMS or from their authenticator app.",
+        "said a code is required, with the code the user received by email or SMS or from their authenticator app.",
       inputSchema: z.object({
         verification_code: z
           .string()
           .regex(/^\s*\d[\d\s]{4,10}\d\s*$/, "verification_code must be the 6-8 digit code")
-          .describe("The 6-digit code from SMS or the authenticator app (or an 8-digit backup code)"),
+          .describe("The verification code from Instagram's email or SMS or the authenticator app (or an 8-digit backup code)"),
       }),
       annotations: {
         readOnlyHint: false,

@@ -45,9 +45,21 @@ function isTwoFactorInfo(error: unknown): error is TwoFactorAuthInfo {
 }
 
 function describeMethod(info: TwoFactorAuthInfo): string {
-  return info.verificationMethod === "1"
-    ? "Instagram sent a verification code by SMS."
-    : "Open your authenticator app to get the verification code.";
+  switch (info.delivery) {
+    case "email":
+      return "Instagram sent a verification code to the account's email address. It may also let you approve the login in the Instagram app instead.";
+    case "sms":
+      return "Instagram sent a verification code by SMS.";
+    case "authenticator":
+      return "Open your authenticator app to get the verification code.";
+    case "unknown":
+      return "Instagram sent a verification code (check the account's email, SMS and authenticator app).";
+    default:
+      // Logins that predate the delivery hint only report SMS vs. authenticator.
+      return info.verificationMethod === "1"
+        ? "Instagram sent a verification code by SMS."
+        : "Open your authenticator app to get the verification code.";
+  }
 }
 
 /** Opens, or reuses, the one-time code page for this pending login. */
@@ -192,7 +204,7 @@ export function registerLogin(server: McpServer): void {
       }
 
       // A login started at server startup (or by an earlier call) is already
-      // waiting for a code. Logging in again would make Instagram send another SMS.
+      // waiting for a code. Logging in again would make Instagram send another code.
       const pending = igpapiClient.getTwoFactorInfo();
       if (pending) {
         return requestCode(server, ctx, pending);

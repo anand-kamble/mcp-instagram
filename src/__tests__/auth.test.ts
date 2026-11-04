@@ -250,6 +250,19 @@ describe.each(ERAS)("instagram_login on the %s era", (era) => {
     expect(JSON.stringify(seen)).not.toContain("secret-password");
   });
 
+  it("says where Instagram sent the code when the login reports it", async () => {
+    fakeAccount({ requiresTwoFactor: true });
+    TWO_FACTOR.delivery = "email";
+    const seen: SeenUrlElicitation[] = [];
+    try {
+      connection = await connect(era, URL_ELICITATION, answerUrlElicitations([{ action: "cancel" }], seen));
+      await call(connection, "instagram_login");
+    } finally {
+      delete TWO_FACTOR.delivery;
+    }
+    expect(seen[0].message).toContain("email address");
+  });
+
   it("never asks for the code with a form", async () => {
     fakeAccount({ requiresTwoFactor: true });
     const seen: SeenUrlElicitation[] = [];
