@@ -251,7 +251,7 @@ Every tool except login and logout needs an active session. Paginated tools retu
 
 ### Two-factor authentication
 
-With `IG_SESSION_ID`, two-factor authentication happens in the browser when you log in there, so the server never needs a code. The server's own two-factor flow (a form for the code in clients that support MCP elicitation, with `instagram_complete_2fa` as a fallback) applies to password login, which is [currently unavailable](#logging-in).
+With `IG_SESSION_ID`, two-factor authentication happens in the browser when you log in there, so the server never needs a code. The server's own two-factor flow (a one-time code page on `127.0.0.1`, opened through MCP URL elicitation where the client supports it, with `instagram_complete_2fa` as a fallback) applies to password login, which is [currently unavailable](#logging-in).
 
 ## ⚠️ Legal Disclaimer and Risks
 
