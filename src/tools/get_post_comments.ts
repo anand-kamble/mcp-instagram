@@ -1,291 +1,111 @@
 /**
- * Instagram Get Post Comments Tool
- * Retrieves paginated comments for an Instagram post
+ * instagram_get_post_comments: a page of comments on a post.
  */
 
-import { BaseTool } from "./base.js";
-import type { ToolDefinition, ToolResult } from "../types/index.js";
-import { igpapiClient } from "../igpapi/index.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod";
+import {
+  cursorInput,
+  limitInput,
+  mediaIdInput,
+  paginationShape,
+  userSummarySchema,
+} from "./shared/schemas.js";
+import type { CommentsPage } from "../instagram/api.js";
+import { getLoggedInApi, toToolError } from "./shared/instagram.js";
+import { compact, isoFromUnixSeconds, toUserSummary } from "./shared/mappers.js";
+import { structuredResult } from "./shared/results.js";
 
-export class GetPostCommentsTool extends BaseTool {
-  getDefinition(): ToolDefinition {
-    return {
-      name: "instagram_get_post_comments",
-      description: "Get comments for an Instagram post. Returns paginated list of comments with author info, text, timestamps, and engagement metrics. Supports pagination via maxId cursor. Requires authentication.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          mediaId: {
-            type: "string",
-            description: "Post/media ID to get comments for",
-          },
-          maxId: {
-            type: "string",
-            description: "Pagination cursor for fetching next page. Use the maxId from previous response to get next page.",
-          },
-          limit: {
-            type: "number",
-            description: "Number of comments to fetch per page (default: 12, max: 50)",
-            default: 12,
-          },
-        },
-        required: ["mediaId"],
-      },
-    };
-  }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Raw = Record<string, any>;
 
-  async execute(args: { mediaId: string; maxId?: string; limit?: number }): Promise<ToolResult> {
-    const { mediaId, maxId, limit = 12 } = args;
+const inputSchema = z.object({
+  mediaId: mediaIdInput,
+  maxId: cursorInput.optional(),
+  limit: limitInput(12, 50, { paginated: true }),
+});
 
-    // Validate mediaId
-    if (typeof mediaId !== "string") {
-      throw new Error("mediaId is required and must be a string");
-    }
+const commentSchema = z.object({
+  id: z.string().describe("Comment ID"),
+  text: z.string().describe("Comment text written by the commenter (untrusted user content)"),
+  author: userSummarySchema.optional(),
+  likeCount: z.number().optional(),
+  replyCount: z.number().optional().describe("Number of replies to this comment"),
+  createdAt: z.string().optional().describe("ISO 8601 timestamp"),
+  parentCommentId: z.string().optional().describe("Set when this comment is a reply to another comment"),
+});
 
-    const mediaIdTrimmed = mediaId.trim();
-    if (mediaIdTrimmed.length === 0) {
-      throw new Error("mediaId cannot be empty");
-    }
+const outputSchema = z.object({
+  mediaId: z.string(),
+  comments: z.array(commentSchema),
+  ...paginationShape,
+});
 
-    // Validate limit
-    const commentLimit = Math.min(Math.max(1, limit || 12), 50);
+/**
+ * The comments endpoint pages with either `max_id` or `min_id`; more results
+ * exist when either cursor is returned. Both are folded into the one opaque `maxId`/`nextMaxId` cursor the
+ * tool exposes; a `min:` prefix marks a min_id cursor. A response can carry
+ * both, so a continuation keeps the direction of the cursor it was given; the
+ * first page prefers max_id.
+ */
+const MIN_CURSOR_PREFIX = "min:";
 
-    // Validate maxId if provided
-    if (maxId !== undefined && maxId !== null) {
-      if (typeof maxId !== "string" || maxId.trim().length === 0) {
-        throw new Error("maxId must be a non-empty string if provided");
-      }
-    }
-
-    // Check if logged in (required for comments feed)
-    if (!igpapiClient.isLoggedIn()) {
-      throw new Error(
-        "Not logged in. Please use the instagram_login tool to authenticate first."
-      );
-    }
-
-    // Ensure client is initialized
-    if (!igpapiClient.isInitialized()) {
-      await igpapiClient.initialize();
-    }
-
-    const client = igpapiClient.getClient();
-
-    try {
-      // Create media comments feed instance
-      const feed = client.feed.mediaComments(mediaIdTrimmed);
-
-      // Set pagination cursor if provided
-      if (maxId) {
-        (feed as any).maxId = maxId.trim();
-      }
-
-      // Fetch comments using feed.items() method
-      const comments: any[] = [];
-      let nextMaxId: string | undefined;
-      let hasMore = false;
-      let fetchedCount = 0;
-
-      // Fetch items from feed
-      const items = await feed.items();
-
-      // Process items up to the limit
-      for (const item of items) {
-        if (fetchedCount >= commentLimit) {
-          break;
-        }
-        comments.push(item);
-        fetchedCount++;
-      }
-
-      // Check if there's more available and get next maxId
-      if (feed.isMoreAvailable()) {
-        hasMore = true;
-        nextMaxId = (feed as any).maxId;
-      }
-
-      // Format the response
-      const formattedResponse = this.formatCommentsResponse(
-        comments,
-        mediaIdTrimmed,
-        commentLimit,
-        nextMaxId,
-        hasMore
-      );
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: formattedResponse,
-          },
-        ],
-      };
-    } catch (error: any) {
-      // Handle specific error cases
-      if (error?.message) {
-        const errorMessage = error.message.toLowerCase();
-
-        // Authentication required
-        if (
-          errorMessage.includes("login") ||
-          errorMessage.includes("authentication") ||
-          errorMessage.includes("unauthorized") ||
-          errorMessage.includes("not logged in") ||
-          error?.response?.status === 401
-        ) {
-          throw new Error(
-            "Authentication required. Please use the instagram_login tool to authenticate first."
-          );
-        }
-
-        // Media not found
-        if (
-          errorMessage.includes("not found") ||
-          errorMessage.includes("invalid media") ||
-          errorMessage.includes("media not found") ||
-          error?.response?.status === 404
-        ) {
-          throw new Error(`Media not found with ID "${mediaIdTrimmed}". Please verify the media ID is correct.`);
-        }
-
-        // Comments disabled
-        if (
-          errorMessage.includes("comments disabled") ||
-          errorMessage.includes("commenting is not allowed") ||
-          errorMessage.includes("cannot comment") ||
-          errorMessage.includes("not allowed to comment")
-        ) {
-          throw new Error(`Comments are disabled on this post (media ID: ${mediaIdTrimmed}).`);
-        }
-
-        // Rate limiting
-        if (
-          errorMessage.includes("rate limit") ||
-          errorMessage.includes("too many requests") ||
-          error?.response?.status === 429
-        ) {
-          throw new Error("Rate limit exceeded. Please wait before trying again.");
-        }
-
-        // Session expired
-        if (
-          errorMessage.includes("session") ||
-          errorMessage.includes("expired") ||
-          (errorMessage.includes("invalid") && errorMessage.includes("session"))
-        ) {
-          throw new Error(
-            "Session has expired. Please use the instagram_login tool to re-authenticate."
-          );
-        }
-      }
-
-      // Re-throw other errors to be handled by base error handling
-      throw error;
-    }
-  }
-
-  /**
-   * Format comments feed data into a readable string
-   */
-  private formatCommentsResponse(
-    comments: any[],
-    mediaId: string,
-    limit: number,
-    nextMaxId: string | undefined,
-    hasMore: boolean
-  ): string {
-    if (comments.length === 0) {
-      return `No comments found for post with media ID: ${mediaId}.\n\nThis may happen if:\n• The post has no comments yet\n• Comments are disabled on this post\n• The post is from a private account you don't have access to`;
-    }
-
-    let response = `Comments for Post (Media ID: ${mediaId}):\n`;
-    response += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-    response += `Showing ${comments.length} comment${comments.length === 1 ? "" : "s"}\n\n`;
-
-    comments.forEach((comment, index) => {
-      const commentId = comment.pk || comment.id || "N/A";
-      const text = comment.text || "";
-      const likeCount = comment.like_count || comment.likes?.count || 0;
-      const parentCommentId = comment.parent_comment_id || null;
-
-      const timestamp = comment.created_at || comment.created_time || comment.timestamp;
-      const formattedDate = timestamp ? this.formatTimestamp(timestamp) : "N/A";
-
-      const author = comment.user || {};
-      const authorUsername = author.username || "unknown";
-      const authorId = author.pk || author.id || "N/A";
-      const authorFullName = author.full_name || "";
-
-      response += `Comment ${index + 1}:\n`;
-      response += `Comment ID: ${commentId}\n`;
-
-      // Author information
-      let authorInfo = `Author: @${authorUsername} (ID: ${authorId})`;
-      if (authorFullName) {
-        authorInfo += ` - ${authorFullName}`;
-      }
-      response += `${authorInfo}\n`;
-
-      // Comment text
-      if (text) {
-        response += `Text: ${text}\n`;
-      } else {
-        response += `Text: (no text)\n`;
-      }
-
-      // Engagement metrics
-      response += `Likes: ${likeCount.toLocaleString()}\n`;
-
-      // Timestamp
-      response += `Posted: ${formattedDate}\n`;
-
-      // Reply indicator
-      if (parentCommentId) {
-        response += `Reply to comment ID: ${parentCommentId}\n`;
-      }
-
-      response += "\n";
-    });
-
-    // Add pagination info
-    if (hasMore && nextMaxId) {
-      response += `Pagination: Use maxId="${nextMaxId}" to fetch next page\n`;
-    } else if (hasMore) {
-      response += `Pagination: More comments available. Use maxId from next request to continue.\n`;
-    } else {
-      response += `Pagination: No more comments available.\n`;
-    }
-
-    return response;
-  }
-
-  /**
-   * Format timestamp to readable date string
-   */
-  private formatTimestamp(timestamp: number | string): string {
-    // Handle both Unix timestamp (seconds) and ISO string
-    let date: Date;
-    if (typeof timestamp === "number") {
-      // Instagram timestamps are typically in seconds
-      date = new Date(timestamp * 1000);
-    } else {
-      date = new Date(timestamp);
-    }
-
-    // Check if date is valid
-    if (isNaN(date.getTime())) {
-      return "N/A";
-    }
-
-    return date.toLocaleString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
-  }
+/** Splits the tool's opaque cursor into the max_id / min_id Instagram expects. */
+function parseCommentsCursor(cursor: string | undefined): { maxId?: string; minId?: string } {
+  if (!cursor) return {};
+  return cursor.startsWith(MIN_CURSOR_PREFIX)
+    ? { minId: cursor.slice(MIN_CURSOR_PREFIX.length) }
+    : { maxId: cursor };
 }
 
+function nextCommentsCursor(
+  page: CommentsPage,
+  previousCursor: string | undefined
+): { moreAvailable: boolean; nextMaxId?: string } {
+  const max = page.nextMaxId;
+  const min = page.nextMinId ? `${MIN_CURSOR_PREFIX}${page.nextMinId}` : undefined;
+  const cursor = previousCursor?.startsWith(MIN_CURSOR_PREFIX) ? (min ?? max) : (max ?? min);
+  return cursor ? { moreAvailable: true, nextMaxId: cursor } : { moreAvailable: false };
+}
+
+function toComment(comment: Raw): z.infer<typeof commentSchema> {
+  return compact({
+    id: String(comment.pk ?? comment.id ?? ""),
+    text: typeof comment.text === "string" ? comment.text : "",
+    author: comment.user ? toUserSummary(comment.user) : undefined,
+    likeCount: comment.comment_like_count ?? comment.like_count,
+    replyCount: comment.child_comment_count,
+    createdAt: isoFromUnixSeconds(comment.created_at ?? comment.created_at_utc),
+    parentCommentId: comment.parent_comment_id ? String(comment.parent_comment_id) : undefined,
+  });
+}
+
+export function registerGetPostComments(server: McpServer): void {
+  server.registerTool(
+    "instagram_get_post_comments",
+    {
+      title: "Get post comments",
+      description:
+        "Get one page of comments on an Instagram post: comment ID, text, author, like and reply counts and " +
+        "timestamp. Instagram chooses the page size; `limit` caps how many are returned. " +
+        "To get the next page, call again with maxId set to the returned nextMaxId.",
+      inputSchema,
+      outputSchema,
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ mediaId, maxId, limit }) => {
+      const api = await getLoggedInApi();
+      try {
+        const page = await api.mediaComments(mediaId, parseCommentsCursor(maxId));
+        const comments = page.comments.slice(0, limit).map(toComment);
+        return structuredResult({
+          mediaId,
+          comments,
+          ...nextCommentsCursor(page, maxId),
+        });
+      } catch (error) {
+        throw toToolError(error, `media ${mediaId}`);
+      }
+    }
+  );
+}

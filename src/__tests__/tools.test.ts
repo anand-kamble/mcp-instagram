@@ -1,1144 +1,484 @@
 /**
- * Unit tests for individual tools
- * Note: These tests require the actual igpapiClient to be available
- * For true unit tests with mocks, consider using a dependency injection pattern
+ * Behaviour of the Instagram tools against a fake Instagram server.
+ *
+ * Tools run on a real InstagramClient + InstagramApi whose fetch is answered
+ * by routes (see helpers.ts), so requests, response parsing and error mapping
+ * are exercised end to end.
  */
 
-import { jest } from "@jest/globals";
-import { LoginTool } from "../tools/login.js";
-import { Complete2FATool } from "../tools/complete_2fa.js";
-import { GetPostDetailsTool } from "../tools/get_post_details.js";
-import { GetUserStoriesTool } from "../tools/get_user_stories.js";
-import { GetTimelineFeedTool } from "../tools/get_timeline_feed.js";
-import { GetUserPostsTool } from "../tools/get_user_posts.js";
-import { CommentOnPostTool } from "../tools/comment_on_post.js";
-import { GetPostCommentsTool } from "../tools/get_post_comments.js";
-import { LikeCommentTool } from "../tools/like_comment.js";
-import { FollowUserTool } from "../tools/follow_user.js";
-import { igpapiClient } from "../igpapi/index.js";
+import { afterAll, afterEach, beforeAll, describe, expect, it, jest } from "@jest/globals";
+import { resetRateLimiter } from "../utils/rateLimit.js";
+import { call, connect, httpError, stubInstagram, textOf } from "./helpers.js";
+import type { Connection, SeenRequest } from "./helpers.js";
 
-// Note: ESM mocking is complex. These tests use the actual client.
-// For production, consider refactoring to use dependency injection.
+let connection: Connection;
 
-describe("Login Tool", () => {
-  let loginTool: LoginTool;
+beforeAll(async () => {
+  connection = await connect("modern");
+});
 
-  beforeEach(() => {
-    loginTool = new LoginTool();
-  });
+afterAll(async () => {
+  await connection.close();
+});
 
-  it("should have correct tool definition", () => {
-    const definition = loginTool.getDefinition();
-    
-    expect(definition.name).toBe("instagram_login");
-    expect(definition.description).toContain("Login");
-    expect(definition.inputSchema.type).toBe("object");
-    // Login tool uses environment variables, so no required parameters in schema
-    expect(definition.inputSchema.required).toEqual([]);
-  });
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
-  it("should validate that credentials are available", async () => {
-    // Clear env vars for this test
-    const originalUsername = process.env.IG_USERNAME;
-    const originalPassword = process.env.IG_PASSWORD;
-    delete process.env.IG_USERNAME;
-    delete process.env.IG_PASSWORD;
-    
-    // Reload config to pick up env var changes
-    const { getConfig, setConfig } = await import("../config/index.js");
-    setConfig({ igpapi: {} });
-    
-    await expect(
-      loginTool.execute({} as any)
-    ).rejects.toThrow("Instagram credentials not found");
-    
-    // Restore env vars
-    if (originalUsername) process.env.IG_USERNAME = originalUsername;
-    if (originalPassword) process.env.IG_PASSWORD = originalPassword;
-  });
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-  // Note: These tests would require mocking igpapiClient which is complex with ESM
-  // They are skipped but kept as examples. Integration tests in server.test.ts
-  // provide better coverage of the actual behavior.
-  
-  it.skip("should check if already logged in", async () => {
-    // Would require mocking igpapiClient.isLoggedIn and getCurrentUser
-  });
+function post(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    code: `code${id}`,
+    media_type: 1,
+    caption: { text: `caption ${id}` },
+    like_count: 10,
+    comment_count: 2,
+    taken_at: 1_700_000_000,
+    user: { pk: 7, username: "nasa", full_name: "NASA", is_verified: true },
+    image_versions2: {
+      candidates: [
+        { url: `https://cdn.example/${id}-small.jpg`, width: 320, height: 320 },
+        { url: `https://cdn.example/${id}-large.jpg`, width: 1080, height: 1080 },
+      ],
+    },
+    ...overrides,
+  };
+}
 
-  it.skip("should initialize client if not initialized", async () => {
-    // Would require mocking the full client initialization flow
-  });
+const nasaLookup = { method: "GET" as const, path: "users/nasa/usernameinfo/", reply: { user: { pk: 7, username: "nasa" } } };
 
-  it.skip("should handle 2FA requirement", async () => {
-    // Would require mocking the 2FA error flow
+describe("input validation", () => {
+  it.each([
+    ["instagram_like_post", {}],
+    ["instagram_like_post", { mediaId: "not-an-id" }],
+    ["instagram_comment_on_post", { mediaId: "1_2", text: "" }],
+    ["instagram_comment_on_post", { mediaId: "1_2", text: "   " }],
+    ["instagram_comment_on_post", { mediaId: "1_2", text: "x".repeat(2201) }],
+    ["instagram_follow_user", { userId: "abc" }],
+    ["instagram_like_comment", { commentId: "" }],
+    ["instagram_get_user_posts", {}],
+    ["instagram_get_user_posts", { userId: "1", username: "nasa" }],
+    ["instagram_get_user_posts", { username: "bad name!" }],
+    ["instagram_get_user_posts", { username: "nasa", limit: 0 }],
+    ["instagram_get_user_posts", { username: "nasa", limit: 51 }],
+    ["instagram_get_user_profile", { username: ".." }],
+    ["instagram_get_user_profile", { username: "@." }],
+    ["instagram_get_user_stories", { username: "..." }],
+  ])("%s rejects %j as a tool error without contacting Instagram", async (name, args) => {
+    const { requests } = stubInstagram();
+    const result = await call(connection, name, args);
+    expect(result.isError).toBe(true);
+    expect(requests).toHaveLength(0);
   });
 });
 
-describe("Complete 2FA Tool", () => {
-  let complete2FATool: Complete2FATool;
-
-  beforeEach(() => {
-    complete2FATool = new Complete2FATool();
-  });
-
-  it("should have correct tool definition", () => {
-    const definition = complete2FATool.getDefinition();
-    
-    expect(definition.name).toBe("instagram_complete_2fa");
-    expect(definition.description).toContain("2FA");
-    expect(definition.inputSchema.required).toContain("verification_code");
-  });
-
-  it("should require verification code", async () => {
-    await expect(
-      complete2FATool.execute({} as any)
-    ).rejects.toThrow("required");
-  });
-
-  it("should reject if no pending 2FA", async () => {
-    // This test works because it uses the actual client state
-    await expect(
-      complete2FATool.execute({ verification_code: "123456" })
-    ).rejects.toThrow("pending");
-  });
-
-  it.skip("should complete 2FA login successfully", async () => {
-    // Would require setting up a pending 2FA state, which is complex
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle invalid verification code", async () => {
-    // Would require setting up a pending 2FA state first
-    // Better tested via integration tests
+describe("authentication", () => {
+  it.each([
+    ["instagram_get_user_posts", { username: "nasa" }],
+    ["instagram_like_post", { mediaId: "1_2" }],
+    ["instagram_follow_user", { userId: "7" }],
+  ])("%s requires a session", async (name, args) => {
+    const { requests } = stubInstagram([], { loggedIn: false });
+    const result = await call(connection, name, args);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("instagram_login");
+    expect(requests).toHaveLength(0);
   });
 });
 
-describe("Get Post Details Tool", () => {
-  let getPostDetailsTool: GetPostDetailsTool;
+describe("instagram_get_user_posts", () => {
+  it("returns structured posts with the largest image and a usable cursor", async () => {
+    stubInstagram([
+      nasaLookup,
+      {
+        method: "GET",
+        path: "feed/user/7/",
+        reply: { items: [post("1_7"), post("2_7")], more_available: true, next_max_id: "cursor-2" },
+      },
+    ]);
 
-  beforeEach(() => {
-    getPostDetailsTool = new GetPostDetailsTool();
+    const result = await call(connection, "instagram_get_user_posts", { username: "@nasa", limit: 1 });
+
+    expect(result.isError).toBeFalsy();
+    const data = result.structuredContent as Record<string, any>;
+    expect(data.userId).toBe("7");
+    expect(data.username).toBe("nasa");
+    expect(data.posts).toHaveLength(1);
+    expect(data.posts[0]).toMatchObject({
+      id: "1_7",
+      type: "photo",
+      caption: "caption 1_7",
+      likeCount: 10,
+      commentCount: 2,
+      takenAt: "2023-11-14T22:13:20.000Z",
+      permalink: "https://www.instagram.com/p/code1_7/",
+      mediaUrls: ["https://cdn.example/1_7-large.jpg"],
+      author: { id: "7", username: "nasa" },
+    });
+    expect(data.moreAvailable).toBe(true);
+    expect(data.nextMaxId).toBe("cursor-2");
+    expect(JSON.parse(textOf(result))).toEqual(data);
   });
 
-  it("should have correct tool definition", () => {
-    const definition = getPostDetailsTool.getDefinition();
-    
-    expect(definition.name).toBe("instagram_get_post_details");
-    expect(definition.description).toContain("detailed information");
-    expect(definition.description).toContain("Instagram post");
-    expect(definition.description).toContain("media ID");
-    expect(definition.inputSchema.type).toBe("object");
-    expect(definition.inputSchema.properties).toHaveProperty("mediaId");
-    expect(definition.inputSchema.required).toContain("mediaId");
+  it("sends the maxId cursor to Instagram", async () => {
+    const { requests } = stubInstagram([
+      { method: "GET", path: "feed/user/7/", reply: { items: [post("3_7")], more_available: false } },
+    ]);
+
+    const result = await call(connection, "instagram_get_user_posts", { userId: "7", maxId: "cursor-2" });
+
+    expect(requests.find((r) => r.path === "feed/user/7/")?.query.get("max_id")).toBe("cursor-2");
+    const data = result.structuredContent as Record<string, any>;
+    expect(data.moreAvailable).toBe(false);
+    expect(data.nextMaxId).toBeUndefined();
   });
 
-  it("should require mediaId", async () => {
-    await expect(
-      getPostDetailsTool.execute({} as any)
-    ).rejects.toThrow("mediaId is required");
+  it("truncates long captions in list results", async () => {
+    stubInstagram([
+      { path: "feed/user/7/", reply: { items: [post("4_7", { caption: { text: "a".repeat(400) } })] } },
+    ]);
+    const result = await call(connection, "instagram_get_user_posts", { userId: "7" });
+    const first = (result.structuredContent as Record<string, any>).posts[0];
+    expect(first.caption).toHaveLength(301);
+    expect(first.captionTruncated).toBe(true);
   });
 
-  it("should reject non-string mediaId", async () => {
-    await expect(
-      getPostDetailsTool.execute({ mediaId: 123456 } as any)
-    ).rejects.toThrow("mediaId is required and must be a string");
-  });
-
-  it("should reject empty mediaId", async () => {
-    await expect(
-      getPostDetailsTool.execute({ mediaId: "" })
-    ).rejects.toThrow("mediaId cannot be empty");
-  });
-
-  it("should reject whitespace-only mediaId", async () => {
-    await expect(
-      getPostDetailsTool.execute({ mediaId: "   " })
-    ).rejects.toThrow("mediaId cannot be empty");
-  });
-
-  it("should accept valid mediaId format", async () => {
-    // This will fail at API call level, but validation should pass
-    await expect(
-      getPostDetailsTool.execute({ mediaId: "123456789" })
-    ).rejects.not.toThrow("mediaId is required");
-    await expect(
-      getPostDetailsTool.execute({ mediaId: "123456789" })
-    ).rejects.not.toThrow("mediaId cannot be empty");
-  });
-
-  it("should trim mediaId whitespace", async () => {
-    // This will fail at API call level, but validation should pass
-    await expect(
-      getPostDetailsTool.execute({ mediaId: "  123456789  " })
-    ).rejects.not.toThrow("mediaId cannot be empty");
-  });
-
-  it.skip("should fetch post details successfully with valid mediaId", async () => {
-    // Would require mocking igpapiClient and media.info()
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle media not found error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle private account error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle authentication required error", async () => {
-    // Would require mocking authentication state
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle rate limiting error", async () => {
-    // Would require mocking rate limit response
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle session expired error", async () => {
-    // Would require mocking session expiration
-    // Better tested via integration tests
+  it("lists every item of a carousel and the video of a video post", async () => {
+    stubInstagram([
+      {
+        path: "feed/user/7/",
+        reply: {
+          items: [
+            post("5_7", {
+              media_type: 8,
+              carousel_media: [
+                { image_versions2: { candidates: [{ url: "https://cdn.example/c1.jpg", width: 1, height: 1 }] } },
+                { video_versions: [{ url: "https://cdn.example/c2.mp4", width: 2, height: 2 }] },
+              ],
+            }),
+            post("6_7", {
+              media_type: 2,
+              video_versions: [{ url: "https://cdn.example/v.mp4", width: 720, height: 1280 }],
+            }),
+          ],
+        },
+      },
+    ]);
+    const result = await call(connection, "instagram_get_user_posts", { userId: "7" });
+    const [carousel, video] = (result.structuredContent as Record<string, any>).posts;
+    expect(carousel.type).toBe("carousel");
+    expect(carousel.mediaUrls).toEqual(["https://cdn.example/c1.jpg", "https://cdn.example/c2.mp4"]);
+    expect(video.type).toBe("video");
+    expect(video.mediaUrls[0]).toBe("https://cdn.example/v.mp4");
   });
 });
 
-describe("Get User Stories Tool", () => {
-  let getUserStoriesTool: GetUserStoriesTool;
-
-  beforeEach(() => {
-    getUserStoriesTool = new GetUserStoriesTool();
+describe("Instagram error translation", () => {
+  it.each([
+    ["a 404", httpError(404, { status: "fail", message: "User not found" }), 'User "ghost" was not found'],
+    ["login_required", httpError(403, { status: "fail", message: "login_required" }), "instagram_login"],
+    ["feedback_required", httpError(400, { status: "fail", message: "feedback_required", spam: true }), "spam"],
+    ["HTTP 429", httpError(429, { status: "fail", message: "Please wait a few minutes before you try again." }), "rate limit"],
+    ["challenge_required", httpError(400, { status: "fail", message: "challenge_required" }), "checkpoint"],
+  ])("maps %s to an actionable message", async (_label, reply, message) => {
+    stubInstagram([{ path: "users/ghost/usernameinfo/", reply }]);
+    const result = await call(connection, "instagram_get_user_posts", { username: "ghost" });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain(message);
   });
 
-  it("should have correct tool definition", () => {
-    const definition = getUserStoriesTool.getDefinition();
-    
-    expect(definition.name).toBe("instagram_get_user_stories");
-    expect(definition.description).toContain("active Instagram stories");
-    expect(definition.description).toContain("user ID or username");
-    expect(definition.description).toContain("expire after 24 hours");
-    expect(definition.inputSchema.type).toBe("object");
-    expect(definition.inputSchema.properties).toHaveProperty("userId");
-    expect(definition.inputSchema.properties).toHaveProperty("username");
-    expect(definition.inputSchema.required).toEqual([]);
-  });
-
-  it("should require either userId or username", async () => {
-    await expect(
-      getUserStoriesTool.execute({} as any)
-    ).rejects.toThrow("Either userId or username must be provided");
-  });
-
-  it("should reject when both userId and username are provided", async () => {
-    await expect(
-      getUserStoriesTool.execute({ userId: "123456", username: "testuser" })
-    ).rejects.toThrow("Both userId and username cannot be provided");
-  });
-
-  it("should reject empty userId", async () => {
-    await expect(
-      getUserStoriesTool.execute({ userId: "" })
-    ).rejects.toThrow("userId cannot be empty");
-  });
-
-  it("should reject non-numeric userId", async () => {
-    await expect(
-      getUserStoriesTool.execute({ userId: "abc123" })
-    ).rejects.toThrow("userId must be a numeric string");
-  });
-
-  it("should reject userId with special characters", async () => {
-    await expect(
-      getUserStoriesTool.execute({ userId: "123-456" })
-    ).rejects.toThrow("userId must be a numeric string");
-  });
-
-  it("should accept valid numeric userId", async () => {
-    // This will fail at API call level, but validation should pass
-    await expect(
-      getUserStoriesTool.execute({ userId: "123456789" })
-    ).rejects.not.toThrow("userId must be a numeric string");
-  });
-
-  it("should reject empty username", async () => {
-    await expect(
-      getUserStoriesTool.execute({ username: "" })
-    ).rejects.toThrow("username cannot be empty");
-  });
-
-  it("should reject username with invalid characters", async () => {
-    await expect(
-      getUserStoriesTool.execute({ username: "test-user!" })
-    ).rejects.toThrow("username contains invalid characters");
-  });
-
-  it("should reject username that is too long", async () => {
-    const longUsername = "a".repeat(31);
-    await expect(
-      getUserStoriesTool.execute({ username: longUsername })
-    ).rejects.toThrow("username is too long");
-  });
-
-  it("should accept username with @ symbol and strip it", async () => {
-    // This will fail at API call level, but validation should pass
-    await expect(
-      getUserStoriesTool.execute({ username: "@testuser" })
-    ).rejects.not.toThrow("username contains invalid characters");
-  });
-
-  it("should accept valid username format", async () => {
-    // This will fail at API call level, but validation should pass
-    await expect(
-      getUserStoriesTool.execute({ username: "test_user.123" })
-    ).rejects.not.toThrow("username contains invalid characters");
-  });
-
-  it.skip("should fetch stories successfully with userId", async () => {
-    // Would require mocking igpapiClient and feed.userStory()
-    // Better tested via integration tests
-  });
-
-  it.skip("should fetch stories successfully with username", async () => {
-    // Would require mocking igpapiClient, user.usernameinfo(), and feed.userStory()
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle user not found error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle private account error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle no stories available (should not error)", async () => {
-    // Would require mocking empty stories response
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle authentication required error", async () => {
-    // Would require mocking authentication state
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle rate limiting error", async () => {
-    // Would require mocking rate limit response
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle session expired error", async () => {
-    // Would require mocking session expiration
-    // Better tested via integration tests
+  it("reports network failures without stack traces", async () => {
+    stubInstagram([{ path: "users/ghost/usernameinfo/", reply: new TypeError("socket hang up") }]);
+    const result = await call(connection, "instagram_get_user_posts", { username: "ghost" });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("Network error");
+    expect(textOf(result)).not.toMatch(/\bat .+\.(ts|js):\d+/);
   });
 });
 
-describe("Get Timeline Feed Tool", () => {
-  let getTimelineFeedTool: GetTimelineFeedTool;
-
-  beforeEach(() => {
-    getTimelineFeedTool = new GetTimelineFeedTool();
+describe("write tools", () => {
+  it("instagram_like_post likes with the requested module", async () => {
+    const { requests } = stubInstagram([{ method: "POST", path: "media/1_7/like/", reply: {} }]);
+    const result = await call(connection, "instagram_like_post", { mediaId: "1_7" });
+    expect(result.isError).toBeFalsy();
+    const like = requests.find((r) => r.path === "media/1_7/like/") as SeenRequest;
+    expect(like.form).toMatchObject({ media_id: "1_7", container_module: "feed_timeline" });
   });
 
-  it("should have correct tool definition", () => {
-    const definition = getTimelineFeedTool.getDefinition();
-    
-    expect(definition.name).toBe("instagram_get_timeline_feed");
-    expect(definition.description).toContain("home feed");
-    expect(definition.description).toContain("accounts you follow");
-    expect(definition.description).toContain("Requires authentication");
-    expect(definition.inputSchema.type).toBe("object");
-    expect(definition.inputSchema.properties).toHaveProperty("maxId");
-    expect(definition.inputSchema.properties).toHaveProperty("limit");
-    expect(definition.inputSchema.required).toEqual([]);
+  it("instagram_like_comment likes the comment", async () => {
+    const { requests } = stubInstagram([{ method: "POST", path: "media/1789/comment_like/", reply: {} }]);
+    const result = await call(connection, "instagram_like_comment", { commentId: "1789" });
+    expect(result.isError).toBeFalsy();
+    expect(requests.map((r) => r.path)).toEqual(["media/1789/comment_like/"]);
   });
 
-  it("should require authentication", async () => {
-    await expect(
-      getTimelineFeedTool.execute({} as any)
-    ).rejects.toThrow("Not logged in");
+  it("instagram_comment_on_post returns the new comment ID", async () => {
+    const { requests } = stubInstagram([
+      { method: "POST", path: "media/1_7/comment/", reply: { comment: { pk: "555", text: "nice" } } },
+    ]);
+    const result = await call(connection, "instagram_comment_on_post", {
+      mediaId: "1_7",
+      text: "  nice  ",
+      replyToCommentId: "1789",
+    });
+    const sent = requests.find((r) => r.path === "media/1_7/comment/") as SeenRequest;
+    expect(sent.form).toMatchObject({ comment_text: "nice", replied_to_comment_id: "1789" });
+    expect(result.structuredContent).toEqual({ commentId: "555", mediaId: "1_7", replyToCommentId: "1789" });
   });
 
-  it("should reject invalid maxId format", async () => {
-    await expect(
-      getTimelineFeedTool.execute({ maxId: "" })
-    ).rejects.toThrow("maxId must be a non-empty string");
-  });
-
-  it("should accept valid maxId", async () => {
-    // This will fail at authentication check, but validation should pass
-    await expect(
-      getTimelineFeedTool.execute({ maxId: "valid_cursor_123" })
-    ).rejects.toThrow("Not logged in");
-    await expect(
-      getTimelineFeedTool.execute({ maxId: "valid_cursor_123" })
-    ).rejects.not.toThrow("maxId must be a non-empty string");
-  });
-
-  it("should clamp limit to valid range (1-50)", async () => {
-    // Test that limit is clamped - this is tested indirectly through execution
-    // The actual clamping happens in the execute method
-    const tool = new GetTimelineFeedTool();
-    // We can't easily test the clamping without mocking, but we can verify
-    // the tool definition shows the default
-    const definition = tool.getDefinition();
-    expect(definition.inputSchema.properties?.limit?.default).toBe(12);
-  });
-
-  it.skip("should fetch timeline feed successfully when authenticated", async () => {
-    // Would require mocking igpapiClient.isLoggedIn() and feed.timeline()
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle authentication required error", async () => {
-    // Would require mocking authentication state
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle rate limiting error", async () => {
-    // Would require mocking rate limit response
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle session expired error", async () => {
-    // Would require mocking session expiration
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle pagination with maxId", async () => {
-    // Would require mocking the feed pagination
-    // Better tested via integration tests
-  });
-
-  it.skip("should respect limit parameter", async () => {
-    // Would require mocking the feed items
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle empty feed correctly", async () => {
-    // Would require mocking empty feed response
-    // Better tested via integration tests
+  it("instagram_follow_user reports a pending request for private accounts", async () => {
+    stubInstagram([
+      {
+        method: "POST",
+        path: "friendships/create/7/",
+        reply: { friendship_status: { following: false, outgoing_request: true, is_private: true } },
+      },
+    ]);
+    const result = await call(connection, "instagram_follow_user", { userId: "7" });
+    expect(result.structuredContent).toEqual({ userId: "7", following: false, requested: true, isPrivate: true });
   });
 });
 
-describe("Get User Posts Tool", () => {
-  let getUserPostsTool: GetUserPostsTool;
+describe("profile and search tools", () => {
+  const rawUser = {
+    pk: 7,
+    username: "nasa",
+    full_name: "NASA",
+    is_private: false,
+    is_verified: true,
+    profile_pic_url: "https://cdn.example/p.jpg",
+    hd_profile_pic_url_info: { url: "https://cdn.example/p-hd.jpg" },
+    biography: "Exploring the universe",
+    external_url: "https://nasa.gov",
+    follower_count: 1000,
+    following_count: 10,
+    media_count: 50,
+    is_business: true,
+    category: "Government",
+  };
 
-  beforeEach(() => {
-    getUserPostsTool = new GetUserPostsTool();
+  it("instagram_get_user_profile maps the profile", async () => {
+    stubInstagram([{ path: "users/nasa/usernameinfo/", reply: { user: rawUser } }]);
+    const result = await call(connection, "instagram_get_user_profile", { username: "nasa" });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      id: "7",
+      username: "nasa",
+      profilePicUrl: "https://cdn.example/p-hd.jpg",
+      biography: "Exploring the universe",
+      followerCount: 1000,
+      followingCount: 10,
+      postCount: 50,
+      accountType: "business",
+      category: "Government",
+    });
   });
 
-  it("should have correct tool definition", () => {
-    const definition = getUserPostsTool.getDefinition();
-    
-    expect(definition.name).toBe("instagram_get_user_posts");
-    expect(definition.description).toContain("paginated feed");
-    expect(definition.description).toContain("user's Instagram posts");
-    expect(definition.description).toContain("pagination");
-    expect(definition.inputSchema.type).toBe("object");
-    expect(definition.inputSchema.properties).toHaveProperty("userId");
-    expect(definition.inputSchema.properties).toHaveProperty("username");
-    expect(definition.inputSchema.properties).toHaveProperty("maxId");
-    expect(definition.inputSchema.properties).toHaveProperty("limit");
-    expect(definition.inputSchema.required).toEqual([]);
+  it("instagram_get_user_profile looks up numeric IDs with users/{id}/info", async () => {
+    const { requests } = stubInstagram([{ path: "users/7/info/", reply: { user: rawUser } }]);
+    const result = await call(connection, "instagram_get_user_profile", { userId: "7" });
+    expect(result.isError).toBeFalsy();
+    expect(requests.map((r) => r.path)).toEqual(["users/7/info/"]);
   });
 
-  it("should require either userId or username", async () => {
-    await expect(
-      getUserPostsTool.execute({} as any)
-    ).rejects.toThrow("Either userId or username must be provided");
+  it("instagram_get_current_user_profile merges account and profile data, without private contact data", async () => {
+    stubInstagram([
+      {
+        path: "accounts/current_user/",
+        reply: { user: { pk: 7, username: "nasa", email: "me@example.com", phone_number: "+15550100" } },
+      },
+      { path: "users/7/info/", reply: { user: rawUser } },
+    ]);
+    const result = await call(connection, "instagram_get_current_user_profile");
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ username: "nasa", followerCount: 1000 });
+    expect(JSON.stringify(result)).not.toContain("me@example.com");
   });
 
-  it("should reject when both userId and username are provided", async () => {
-    await expect(
-      getUserPostsTool.execute({ userId: "123456", username: "testuser" })
-    ).rejects.toThrow("Both userId and username cannot be provided");
-  });
-
-  it("should reject empty userId", async () => {
-    // Empty string is falsy, so it's caught by the "either must be provided" check
-    await expect(
-      getUserPostsTool.execute({ userId: "" })
-    ).rejects.toThrow("Either userId or username must be provided");
-  });
-
-  it("should reject non-numeric userId", async () => {
-    await expect(
-      getUserPostsTool.execute({ userId: "abc123" })
-    ).rejects.toThrow("userId must be a numeric string");
-  });
-
-  it("should reject userId with special characters", async () => {
-    await expect(
-      getUserPostsTool.execute({ userId: "123-456" })
-    ).rejects.toThrow("userId must be a numeric string");
-  });
-
-  it("should accept valid numeric userId", async () => {
-    // Validation passes - API call may succeed or fail, but validation should not throw
-    // This will fail at API call level (authentication or user not found), but validation should pass
-    try {
-      await getUserPostsTool.execute({ userId: "123456789" });
-      // If it resolves, validation passed (which is what we're testing)
-    } catch (error: any) {
-      // If it rejects, make sure it's not a validation error
-      const errorMessage = error?.message || String(error);
-      expect(errorMessage).not.toContain("userId must be a numeric string");
-      expect(errorMessage).not.toContain("userId cannot be empty");
-    }
-  });
-
-  it("should reject empty username", async () => {
-    // Empty string is falsy, so it's caught by the "either must be provided" check
-    await expect(
-      getUserPostsTool.execute({ username: "" })
-    ).rejects.toThrow("Either userId or username must be provided");
-  });
-
-  it("should reject username with invalid characters", async () => {
-    await expect(
-      getUserPostsTool.execute({ username: "test-user!" })
-    ).rejects.toThrow("username contains invalid characters");
-  });
-
-  it("should reject username that is too long", async () => {
-    const longUsername = "a".repeat(31);
-    await expect(
-      getUserPostsTool.execute({ username: longUsername })
-    ).rejects.toThrow("username is too long");
-  });
-
-  it("should accept username with @ symbol and strip it", async () => {
-    // Validation passes - API call may succeed or fail, but validation should not throw
-    // This will fail at API call level (authentication or user not found), but validation should pass
-    await expect(
-      getUserPostsTool.execute({ username: "@testuser" })
-    ).rejects.not.toThrow("username contains invalid characters");
-    await expect(
-      getUserPostsTool.execute({ username: "@testuser" })
-    ).rejects.not.toThrow("username cannot be empty");
-  });
-
-  it("should accept valid username format", async () => {
-    // Validation passes - API call may succeed or fail, but validation should not throw
-    // This will fail at API call level (authentication or user not found), but validation should pass
-    await expect(
-      getUserPostsTool.execute({ username: "test_user.123" })
-    ).rejects.not.toThrow("username contains invalid characters");
-    await expect(
-      getUserPostsTool.execute({ username: "test_user.123" })
-    ).rejects.not.toThrow("username cannot be empty");
-  });
-
-  it("should reject invalid maxId format", async () => {
-    await expect(
-      getUserPostsTool.execute({ userId: "123456", maxId: "" })
-    ).rejects.toThrow("maxId must be a non-empty string");
-  });
-
-  it("should accept valid maxId", async () => {
-    // Validation passes - API call may succeed or fail, but validation should not throw
-    // This will fail at API call level (authentication or user not found), but validation should pass
-    try {
-      await getUserPostsTool.execute({ userId: "123456", maxId: "valid_cursor_123" });
-      // If it resolves, validation passed (which is what we're testing)
-    } catch (error: any) {
-      // If it rejects, make sure it's not a validation error
-      const errorMessage = error?.message || String(error);
-      expect(errorMessage).not.toContain("maxId must be a non-empty string");
-    }
-  });
-
-  it("should clamp limit to valid range (1-50)", async () => {
-    // Test that limit is clamped - this is tested indirectly through execution
-    // The actual clamping happens in the execute method
-    const tool = new GetUserPostsTool();
-    // We can't easily test the clamping without mocking, but we can verify
-    // the tool definition shows the default
-    const definition = tool.getDefinition();
-    expect(definition.inputSchema.properties?.limit?.default).toBe(12);
-  });
-
-  it.skip("should fetch posts successfully with userId", async () => {
-    // Would require mocking igpapiClient and feed.user()
-    // Better tested via integration tests
-  });
-
-  it.skip("should fetch posts successfully with username", async () => {
-    // Would require mocking igpapiClient, user.usernameinfo(), and feed.user()
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle user not found error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle private account error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle no posts available (should not error)", async () => {
-    // Would require mocking empty posts response
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle authentication required error", async () => {
-    // Would require mocking authentication state
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle rate limiting error", async () => {
-    // Would require mocking rate limit response
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle session expired error", async () => {
-    // Would require mocking session expiration
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle pagination with maxId", async () => {
-    // Would require mocking the feed pagination
-    // Better tested via integration tests
-  });
-
-  it.skip("should respect limit parameter", async () => {
-    // Would require mocking the feed items
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle empty posts feed correctly", async () => {
-    // Would require mocking empty posts response
-    // Better tested via integration tests
+  it("instagram_search_accounts applies the limit and reports the total", async () => {
+    const users = [rawUser, { ...rawUser, pk: 8, username: "nasa2" }, { ...rawUser, pk: 9, username: "nasa3" }];
+    const { requests } = stubInstagram([{ path: "users/search/", reply: { users } }]);
+    const result = await call(connection, "instagram_search_accounts", { query: " nasa ", limit: 2 });
+    const data = result.structuredContent as Record<string, any>;
+    expect(data.query).toBe("nasa");
+    expect(data.accounts.map((account: { username: string }) => account.username)).toEqual(["nasa", "nasa2"]);
+    expect(data.totalMatches).toBe(3);
+    expect(requests[0].query.get("query")).toBe("nasa");
   });
 });
 
-describe("Comment on Post Tool", () => {
-  let commentOnPostTool: CommentOnPostTool;
-
-  beforeEach(() => {
-    commentOnPostTool = new CommentOnPostTool();
+describe("post, comment, story and timeline tools", () => {
+  it("instagram_get_post_details returns the full caption and dimensions", async () => {
+    const longCaption = `${"a".repeat(400)} #space @nasa`;
+    stubInstagram([
+      {
+        path: "media/1_7/info/",
+        reply: { items: [post("1_7", { caption: { text: longCaption }, original_width: 1080, original_height: 1350 })] },
+      },
+    ]);
+    const result = await call(connection, "instagram_get_post_details", { mediaId: "1_7" });
+    expect(result.structuredContent).toMatchObject({
+      id: "1_7",
+      caption: longCaption,
+      width: 1080,
+      height: 1350,
+      hasHashtags: true,
+      hasMentions: true,
+    });
   });
 
-  it("should have correct tool definition", () => {
-    const definition = commentOnPostTool.getDefinition();
-    
-    expect(definition.name).toBe("instagram_comment_on_post");
-    expect(definition.description).toContain("comment");
-    expect(definition.description).toContain("Instagram post");
-    expect(definition.description).toContain("Requires authentication");
-    expect(definition.inputSchema.type).toBe("object");
-    expect(definition.inputSchema.properties).toHaveProperty("mediaId");
-    expect(definition.inputSchema.properties).toHaveProperty("text");
-    expect(definition.inputSchema.properties).toHaveProperty("replyToCommentId");
-    expect(definition.inputSchema.required).toContain("mediaId");
-    expect(definition.inputSchema.required).toContain("text");
-    expect(definition.inputSchema.required).not.toContain("replyToCommentId");
+  it("instagram_get_post_details reports a missing post", async () => {
+    stubInstagram([{ path: "media/1_7/info/", reply: { items: [] } }]);
+    const result = await call(connection, "instagram_get_post_details", { mediaId: "1_7" });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("not found");
   });
 
-  it("should require mediaId", async () => {
-    await expect(
-      commentOnPostTool.execute({} as any)
-    ).rejects.toThrow("mediaId is required");
+  it("instagram_get_post_comments maps comments and pages with max_id", async () => {
+    stubInstagram([
+      {
+        path: "media/1_7/comments/",
+        reply: {
+          comments: [
+            {
+              pk: "111",
+              text: "great shot",
+              comment_like_count: 4,
+              child_comment_count: 1,
+              created_at: 1_700_000_000,
+              user: { pk: 9, username: "fan" },
+            },
+          ],
+          next_max_id: "c-2",
+        },
+      },
+    ]);
+    const result = await call(connection, "instagram_get_post_comments", { mediaId: "1_7" });
+    const data = result.structuredContent as Record<string, any>;
+    expect(data.comments[0]).toMatchObject({
+      id: "111",
+      text: "great shot",
+      likeCount: 4,
+      replyCount: 1,
+      author: { username: "fan" },
+    });
+    expect(data.nextMaxId).toBe("c-2");
   });
 
-  it("should require text", async () => {
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456" } as any)
-    ).rejects.toThrow("text is required");
+  it("instagram_get_post_comments round-trips a min_id cursor", async () => {
+    const { requests } = stubInstagram([
+      { path: "media/1_7/comments/", reply: { comments: [], next_min_id: "older-2" } },
+    ]);
+    const result = await call(connection, "instagram_get_post_comments", { mediaId: "1_7", maxId: "min:older-1" });
+    expect(requests[0].query.get("min_id")).toBe("older-1");
+    expect(requests[0].query.get("max_id")).toBeNull();
+    expect(result.structuredContent).toMatchObject({ moreAvailable: true, nextMaxId: "min:older-2" });
   });
 
-  it("should reject non-string mediaId", async () => {
-    await expect(
-      commentOnPostTool.execute({ mediaId: 123456, text: "test comment" } as any)
-    ).rejects.toThrow("mediaId is required and must be a string");
+  it("instagram_get_post_comments keeps paging in the min_id direction when both cursors come back", async () => {
+    stubInstagram([
+      { path: "media/1_7/comments/", reply: { comments: [], next_max_id: "newer-1", next_min_id: "older-2" } },
+    ]);
+    const result = await call(connection, "instagram_get_post_comments", { mediaId: "1_7", maxId: "min:older-1" });
+    expect(result.structuredContent).toMatchObject({ nextMaxId: "min:older-2" });
   });
 
-  it("should reject empty mediaId", async () => {
-    await expect(
-      commentOnPostTool.execute({ mediaId: "", text: "test comment" })
-    ).rejects.toThrow("mediaId cannot be empty");
+  it("instagram_get_user_stories maps active stories", async () => {
+    stubInstagram([
+      {
+        path: "feed/user/7/story/",
+        reply: {
+          reel: {
+            items: [
+              {
+                id: "s1",
+                media_type: 2,
+                taken_at: 1_700_000_000,
+                video_duration: 5,
+                video_versions: [{ url: "https://cdn.example/s1.mp4", width: 720, height: 1280 }],
+                story_polls: [{}],
+                user: { username: "nasa" },
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    const result = await call(connection, "instagram_get_user_stories", { userId: "7" });
+    const data = result.structuredContent as Record<string, any>;
+    expect(data.username).toBe("nasa");
+    expect(data.stories[0]).toMatchObject({
+      id: "s1",
+      type: "video",
+      videoDurationSeconds: 5,
+      stickerTypes: ["poll"],
+      expiresAt: "2023-11-15T22:13:20.000Z",
+      mediaUrls: ["https://cdn.example/s1.mp4"],
+    });
   });
 
-  it("should reject whitespace-only mediaId", async () => {
-    await expect(
-      commentOnPostTool.execute({ mediaId: "   ", text: "test comment" })
-    ).rejects.toThrow("mediaId cannot be empty");
+  it("instagram_get_user_stories returns an empty list when the user has no active reel", async () => {
+    stubInstagram([{ path: "feed/user/7/story/", reply: { reel: null } }]);
+    const result = await call(connection, "instagram_get_user_stories", { userId: "7" });
+    expect((result.structuredContent as Record<string, any>).stories).toEqual([]);
   });
 
-  it("should reject non-string text", async () => {
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: 123 } as any)
-    ).rejects.toThrow("text is required and must be a string");
-  });
-
-  it("should reject empty text", async () => {
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: "" })
-    ).rejects.toThrow("text cannot be empty");
-  });
-
-  it("should reject whitespace-only text", async () => {
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: "   " })
-    ).rejects.toThrow("text cannot be empty");
-  });
-
-  it("should reject text exceeding 2200 characters", async () => {
-    const longText = "a".repeat(2201);
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: longText })
-    ).rejects.toThrow("exceeds maximum length of 2200 characters");
-  });
-
-  it("should accept text with exactly 2200 characters", async () => {
-    const maxLengthText = "a".repeat(2200);
-    // This will fail at authentication check, but validation should pass
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: maxLengthText })
-    ).rejects.toThrow("Not logged in");
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: maxLengthText })
-    ).rejects.not.toThrow("exceeds maximum length");
-  });
-
-  it("should reject non-string replyToCommentId", async () => {
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: "test", replyToCommentId: 123 } as any)
-    ).rejects.toThrow("replyToCommentId must be a string if provided");
-  });
-
-  it("should reject empty replyToCommentId", async () => {
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: "test", replyToCommentId: "" })
-    ).rejects.toThrow("replyToCommentId cannot be empty if provided");
-  });
-
-  it("should reject whitespace-only replyToCommentId", async () => {
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: "test", replyToCommentId: "   " })
-    ).rejects.toThrow("replyToCommentId cannot be empty if provided");
-  });
-
-  it("should accept valid replyToCommentId", async () => {
-    // This will fail at authentication check, but validation should pass
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: "test", replyToCommentId: "789012" })
-    ).rejects.toThrow("Not logged in");
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: "test", replyToCommentId: "789012" })
-    ).rejects.not.toThrow("replyToCommentId");
-  });
-
-  it("should require authentication", async () => {
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: "test comment" })
-    ).rejects.toThrow("Not logged in");
-  });
-
-  it("should trim mediaId whitespace", async () => {
-    // This will fail at authentication check, but validation should pass
-    await expect(
-      commentOnPostTool.execute({ mediaId: "  123456  ", text: "test comment" })
-    ).rejects.toThrow("Not logged in");
-    await expect(
-      commentOnPostTool.execute({ mediaId: "  123456  ", text: "test comment" })
-    ).rejects.not.toThrow("mediaId cannot be empty");
-  });
-
-  it("should trim text whitespace", async () => {
-    // This will fail at authentication check, but validation should pass
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: "  test comment  " })
-    ).rejects.toThrow("Not logged in");
-    await expect(
-      commentOnPostTool.execute({ mediaId: "123456", text: "  test comment  " })
-    ).rejects.not.toThrow("text cannot be empty");
-  });
-
-  it.skip("should comment on post successfully when authenticated", async () => {
-    // Would require mocking igpapiClient.isLoggedIn() and media.comment()
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle media not found error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle comments disabled error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle authentication required error", async () => {
-    // Would require mocking authentication state
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle rate limiting error", async () => {
-    // Would require mocking rate limit response
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle session expired error", async () => {
-    // Would require mocking session expiration
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle invalid comment text error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle reply to comment successfully", async () => {
-    // Would require mocking igpapiClient and media.comment() with replyToCommentId
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle comment not found error when replying", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
+  it("instagram_get_timeline_feed flags sponsored posts and pages", async () => {
+    const { requests } = stubInstagram([
+      {
+        method: "POST",
+        path: "feed/timeline/",
+        reply: {
+          feed_items: [{ media_or_ad: post("1_7") }, { media_or_ad: post("2_8", { ad_id: "ad-1" }) }, { suggested_users: {} }],
+          more_available: true,
+          next_max_id: "t-2",
+        },
+      },
+    ]);
+    const result = await call(connection, "instagram_get_timeline_feed", { maxId: "t-1" });
+    const data = result.structuredContent as Record<string, any>;
+    expect(requests[0].form.max_id).toBe("t-1");
+    expect(data.posts).toHaveLength(2);
+    expect(data.posts[0].sponsored).toBeUndefined();
+    expect(data.posts[1].sponsored).toBe(true);
+    expect(data.nextMaxId).toBe("t-2");
   });
 });
 
-describe("Get Post Comments Tool", () => {
-  let getPostCommentsTool: GetPostCommentsTool;
-
-  beforeEach(() => {
-    getPostCommentsTool = new GetPostCommentsTool();
+describe("rate limiting", () => {
+  afterEach(() => {
+    delete process.env.IG_RATE_LIMITS;
+    resetRateLimiter();
   });
 
-  it("should have correct tool definition", () => {
-    const definition = getPostCommentsTool.getDefinition();
-    
-    expect(definition.name).toBe("instagram_get_post_comments");
-    expect(definition.description).toContain("comments");
-    expect(definition.description).toContain("Instagram post");
-    expect(definition.description).toContain("Requires authentication");
-    expect(definition.description).toContain("pagination");
-    expect(definition.inputSchema.type).toBe("object");
-    expect(definition.inputSchema.properties).toHaveProperty("mediaId");
-    expect(definition.inputSchema.properties).toHaveProperty("maxId");
-    expect(definition.inputSchema.properties).toHaveProperty("limit");
-    expect(definition.inputSchema.required).toContain("mediaId");
-    expect(definition.inputSchema.required).not.toContain("maxId");
-    expect(definition.inputSchema.required).not.toContain("limit");
+  it("refuses a write over the limit without contacting Instagram", async () => {
+    process.env.IG_RATE_LIMITS = JSON.stringify({ comment: { perMinute: 1 } });
+    resetRateLimiter();
+    const { requests } = stubInstagram([{ method: "POST", path: "media/1_7/comment/", reply: { comment: { pk: "1" } } }]);
+
+    const first = await call(connection, "instagram_comment_on_post", { mediaId: "1_7", text: "one" });
+    const second = await call(connection, "instagram_comment_on_post", { mediaId: "1_7", text: "two" });
+
+    expect(first.isError).toBeFalsy();
+    expect(second.isError).toBe(true);
+    expect(textOf(second)).toMatch(/Rate limit reached.*Try again in/s);
+    expect(requests).toHaveLength(1);
   });
 
-  it("should require mediaId", async () => {
-    await expect(
-      getPostCommentsTool.execute({} as any)
-    ).rejects.toThrow("mediaId is required");
-  });
+  it("does not count calls rejected for a missing session", async () => {
+    process.env.IG_RATE_LIMITS = JSON.stringify({ follow: { perMinute: 1 } });
+    resetRateLimiter();
+    stubInstagram([], { loggedIn: false });
+    await call(connection, "instagram_follow_user", { userId: "7" });
+    jest.restoreAllMocks();
 
-  it("should reject non-string mediaId", async () => {
-    await expect(
-      getPostCommentsTool.execute({ mediaId: 123456 } as any)
-    ).rejects.toThrow("mediaId is required and must be a string");
-  });
-
-  it("should reject empty mediaId", async () => {
-    await expect(
-      getPostCommentsTool.execute({ mediaId: "" })
-    ).rejects.toThrow("mediaId cannot be empty");
-  });
-
-  it("should reject whitespace-only mediaId", async () => {
-    await expect(
-      getPostCommentsTool.execute({ mediaId: "   " })
-    ).rejects.toThrow("mediaId cannot be empty");
-  });
-
-  it("should reject invalid maxId format", async () => {
-    await expect(
-      getPostCommentsTool.execute({ mediaId: "123456", maxId: "" })
-    ).rejects.toThrow("maxId must be a non-empty string");
-  });
-
-  it("should accept valid maxId", async () => {
-    // This will fail at authentication check, but validation should pass
-    await expect(
-      getPostCommentsTool.execute({ mediaId: "123456", maxId: "valid_cursor_123" })
-    ).rejects.toThrow("Not logged in");
-    await expect(
-      getPostCommentsTool.execute({ mediaId: "123456", maxId: "valid_cursor_123" })
-    ).rejects.not.toThrow("maxId must be a non-empty string");
-  });
-
-  it("should clamp limit to valid range (1-50)", async () => {
-    // Test that limit is clamped - this is tested indirectly through execution
-    // The actual clamping happens in the execute method
-    const tool = new GetPostCommentsTool();
-    // We can't easily test the clamping without mocking, but we can verify
-    // the tool definition shows the default
-    const definition = tool.getDefinition();
-    expect(definition.inputSchema.properties?.limit?.default).toBe(12);
-  });
-
-  it("should require authentication", async () => {
-    await expect(
-      getPostCommentsTool.execute({ mediaId: "123456" })
-    ).rejects.toThrow("Not logged in");
-  });
-
-  it("should trim mediaId whitespace", async () => {
-    // This will fail at authentication check, but validation should pass
-    await expect(
-      getPostCommentsTool.execute({ mediaId: "  123456  " })
-    ).rejects.toThrow("Not logged in");
-    await expect(
-      getPostCommentsTool.execute({ mediaId: "  123456  " })
-    ).rejects.not.toThrow("mediaId cannot be empty");
-  });
-
-  it("should trim maxId whitespace", async () => {
-    // This will fail at authentication check, but validation should pass
-    await expect(
-      getPostCommentsTool.execute({ mediaId: "123456", maxId: "  cursor_123  " })
-    ).rejects.toThrow("Not logged in");
-    await expect(
-      getPostCommentsTool.execute({ mediaId: "123456", maxId: "  cursor_123  " })
-    ).rejects.not.toThrow("maxId must be a non-empty string");
-  });
-
-  it.skip("should fetch comments successfully when authenticated", async () => {
-    // Would require mocking igpapiClient.isLoggedIn() and feed.mediaComments()
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle media not found error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle comments disabled error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle authentication required error", async () => {
-    // Would require mocking authentication state
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle rate limiting error", async () => {
-    // Would require mocking rate limit response
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle session expired error", async () => {
-    // Would require mocking session expiration
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle pagination with maxId", async () => {
-    // Would require mocking the feed pagination
-    // Better tested via integration tests
-  });
-
-  it.skip("should respect limit parameter", async () => {
-    // Would require mocking the feed items
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle empty comments correctly", async () => {
-    // Would require mocking empty comments response
-    // Better tested via integration tests
-  });
-
-  it.skip("should format comments with reply indicators", async () => {
-    // Would require mocking comments with parent_comment_id
-    // Better tested via integration tests
+    const { requests } = stubInstagram([
+      { method: "POST", path: "friendships/create/7/", reply: { friendship_status: { following: true } } },
+    ]);
+    const result = await call(connection, "instagram_follow_user", { userId: "7" });
+    expect(result.isError).toBeFalsy();
+    expect(requests).toHaveLength(1);
   });
 });
-
-describe("Like Comment Tool", () => {
-  let likeCommentTool: LikeCommentTool;
-
-  beforeEach(() => {
-    likeCommentTool = new LikeCommentTool();
-  });
-
-  it("should have correct tool definition", () => {
-    const definition = likeCommentTool.getDefinition();
-    
-    expect(definition.name).toBe("instagram_like_comment");
-    expect(definition.description).toContain("Like");
-    expect(definition.description).toContain("comment");
-    expect(definition.description).toContain("Requires authentication");
-    expect(definition.inputSchema.type).toBe("object");
-    expect(definition.inputSchema.properties).toHaveProperty("commentId");
-    expect(definition.inputSchema.required).toContain("commentId");
-  });
-
-  it("should require commentId", async () => {
-    await expect(
-      likeCommentTool.execute({} as any)
-    ).rejects.toThrow("commentId is required");
-  });
-
-  it("should reject non-string commentId", async () => {
-    await expect(
-      likeCommentTool.execute({ commentId: 123456 } as any)
-    ).rejects.toThrow("commentId is required and must be a string");
-  });
-
-  it("should reject empty commentId", async () => {
-    await expect(
-      likeCommentTool.execute({ commentId: "" })
-    ).rejects.toThrow("commentId cannot be empty");
-  });
-
-  it("should reject whitespace-only commentId", async () => {
-    await expect(
-      likeCommentTool.execute({ commentId: "   " })
-    ).rejects.toThrow("commentId cannot be empty");
-  });
-
-  it("should require authentication", async () => {
-    await expect(
-      likeCommentTool.execute({ commentId: "123456" })
-    ).rejects.toThrow("Not logged in");
-  });
-
-  it("should trim commentId whitespace", async () => {
-    // This will fail at authentication check, but validation should pass
-    await expect(
-      likeCommentTool.execute({ commentId: "  123456  " })
-    ).rejects.toThrow("Not logged in");
-    await expect(
-      likeCommentTool.execute({ commentId: "  123456  " })
-    ).rejects.not.toThrow("commentId cannot be empty");
-  });
-
-  it.skip("should like comment successfully when authenticated", async () => {
-    // Would require mocking igpapiClient.isLoggedIn() and media.likeComment()
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle comment not found error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle authentication required error", async () => {
-    // Would require mocking authentication state
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle rate limiting error", async () => {
-    // Would require mocking rate limit response
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle session expired error", async () => {
-    // Would require mocking session expiration
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle already liked comment gracefully", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-});
-
-describe("Follow User Tool", () => {
-  let followUserTool: FollowUserTool;
-
-  beforeEach(() => {
-    followUserTool = new FollowUserTool();
-  });
-
-  it("should have correct tool definition", () => {
-    const definition = followUserTool.getDefinition();
-    
-    expect(definition.name).toBe("instagram_follow_user");
-    expect(definition.description).toContain("Follow");
-    expect(definition.description).toContain("user");
-    expect(definition.description).toContain("Requires authentication");
-    expect(definition.inputSchema.type).toBe("object");
-    expect(definition.inputSchema.properties).toHaveProperty("userId");
-    expect(definition.inputSchema.required).toContain("userId");
-  });
-
-  it("should require userId", async () => {
-    await expect(
-      followUserTool.execute({} as any)
-    ).rejects.toThrow("userId is required");
-  });
-
-  it("should reject non-string userId", async () => {
-    await expect(
-      followUserTool.execute({ userId: 123456 } as any)
-    ).rejects.toThrow("userId is required and must be a string");
-  });
-
-  it("should reject empty userId", async () => {
-    await expect(
-      followUserTool.execute({ userId: "" })
-    ).rejects.toThrow("userId cannot be empty");
-  });
-
-  it("should reject whitespace-only userId", async () => {
-    await expect(
-      followUserTool.execute({ userId: "   " })
-    ).rejects.toThrow("userId cannot be empty");
-  });
-
-  it("should require authentication", async () => {
-    await expect(
-      followUserTool.execute({ userId: "123456" })
-    ).rejects.toThrow("Not logged in");
-  });
-
-  it("should trim userId whitespace", async () => {
-    // This will fail at authentication check, but validation should pass
-    await expect(
-      followUserTool.execute({ userId: "  123456  " })
-    ).rejects.toThrow("Not logged in");
-    await expect(
-      followUserTool.execute({ userId: "  123456  " })
-    ).rejects.not.toThrow("userId cannot be empty");
-  });
-
-  it.skip("should follow user successfully when authenticated", async () => {
-    // Would require mocking igpapiClient.isLoggedIn() and friendship.create()
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle user not found error", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle authentication required error", async () => {
-    // Would require mocking authentication state
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle rate limiting error", async () => {
-    // Would require mocking rate limit response
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle session expired error", async () => {
-    // Would require mocking session expiration
-    // Better tested via integration tests
-  });
-
-  it.skip("should handle already following user gracefully", async () => {
-    // Would require mocking the API call
-    // The error handling is tested through integration tests
-  });
-
-  it.skip("should handle private account approval requirement", async () => {
-    // Would require mocking the API call with outgoing_request status
-    // The error handling is tested through integration tests
-  });
-});
-

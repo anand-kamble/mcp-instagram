@@ -1,130 +1,43 @@
 /**
- * Instagram Like Comment Tool
- * Allows liking Instagram comments by comment ID
+ * instagram_like_comment: likes a comment as the logged-in account.
  */
 
-import { BaseTool } from "./base.js";
-import type { ToolDefinition, ToolResult } from "../types/index.js";
-import { igpapiClient } from "../igpapi/index.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod";
+import { consumeRateLimit } from "../utils/index.js";
+import { getLoggedInApi, toToolError } from "./shared/instagram.js";
+import { textResult } from "./shared/results.js";
 
-export class LikeCommentTool extends BaseTool {
-  getDefinition(): ToolDefinition {
-    return {
-      name: "instagram_like_comment",
-      description: "Like an Instagram comment by comment ID. Requires authentication.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          commentId: {
-            type: "string",
-            description: "Comment ID to like",
-          },
-        },
-        required: ["commentId"],
+export function registerLikeComment(server: McpServer): void {
+  server.registerTool(
+    "instagram_like_comment",
+    {
+      title: "Like a comment",
+      description:
+        "Like a comment on an Instagram post as the logged-in account. This is a public action on the user's real " +
+        "account; only call it when the user asked for it. Comment IDs come from instagram_get_post_comments.",
+      inputSchema: z.object({
+        commentId: z
+          .string()
+          .regex(/^\d{1,40}$/, "commentId must be a numeric string")
+          .describe("Comment ID, as returned by instagram_get_post_comments"),
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
-    };
-  }
-
-  async execute(args: { commentId: string }): Promise<ToolResult> {
-    const { commentId } = args;
-
-    // Validate commentId
-    if (typeof commentId !== "string") {
-      throw new Error("commentId is required and must be a string");
-    }
-
-    const commentIdTrimmed = commentId.trim();
-    if (commentIdTrimmed.length === 0) {
-      throw new Error("commentId cannot be empty");
-    }
-
-    // Check if logged in
-    if (!igpapiClient.isLoggedIn()) {
-      throw new Error("Not logged in. Please use the instagram_login tool to authenticate first.");
-    }
-
-    // Ensure client is initialized
-    if (!igpapiClient.isInitialized()) {
-      await igpapiClient.initialize();
-    }
-
-    const client = igpapiClient.getClient();
-
-    try {
-      // Call the API to like the comment
-      await client.media.likeComment(commentIdTrimmed);
-
-      // Format success response
-      const response = `Successfully liked comment with ID: ${commentIdTrimmed}`;
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: response,
-          },
-        ],
-      };
-    } catch (error: any) {
-      // Handle specific error cases
-      if (error?.message) {
-        const errorMessage = error.message.toLowerCase();
-
-        // Authentication errors
-        if (
-          errorMessage.includes("not logged in") ||
-          errorMessage.includes("login") ||
-          errorMessage.includes("authentication") ||
-          errorMessage.includes("unauthorized") ||
-          error?.response?.status === 401
-        ) {
-          throw new Error("Authentication required. Please use the instagram_login tool to authenticate first.");
-        }
-
-        // Session expired
-        if (
-          errorMessage.includes("session") ||
-          errorMessage.includes("expired") ||
-          errorMessage.includes("invalid")
-        ) {
-          throw new Error("Session has expired. Please use the instagram_login tool to re-authenticate.");
-        }
-
-        // Comment not found
-        if (
-          errorMessage.includes("not found") ||
-          errorMessage.includes("invalid comment") ||
-          errorMessage.includes("comment not found") ||
-          error?.response?.status === 404
-        ) {
-          throw new Error(`Comment not found with ID "${commentIdTrimmed}". Please verify the comment ID is correct.`);
-        }
-
-        // Rate limiting
-        if (
-          errorMessage.includes("rate limit") ||
-          errorMessage.includes("too many requests") ||
-          error?.response?.status === 429
-        ) {
-          throw new Error("Rate limit exceeded. Please wait before trying again.");
-        }
-
-        // Already liked (Instagram API may return success, but handle if it throws)
-        if (errorMessage.includes("already liked") || errorMessage.includes("duplicate")) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Comment with ID "${commentIdTrimmed}" is already liked.`,
-              },
-            ],
-          };
-        }
+    },
+    async ({ commentId }) => {
+      const api = await getLoggedInApi();
+      consumeRateLimit("like");
+      try {
+        await api.likeComment(commentId);
+      } catch (error) {
+        throw toToolError(error, `comment ${commentId}`);
       }
-
-      // Re-throw other errors to be handled by base error handling
-      throw error;
+      return textResult(`Liked comment ${commentId}.`);
     }
-  }
+  );
 }
-

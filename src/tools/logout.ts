@@ -1,58 +1,82 @@
 /**
- * Instagram Logout Tool
- * Logs out from Instagram and clears the saved session
+ * instagram_logout: ends the session on Instagram and deletes the saved session.
  */
 
-import { BaseTool } from "./base.js";
-import type { ToolDefinition, ToolResult } from "../types/index.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod";
+import { getConfig } from "../config/index.js";
 import { igpapiClient } from "../igpapi/index.js";
+import { InstagramApi } from "../instagram/api.js";
+import { waitForStartup, withTimeout } from "./shared/instagram.js";
+import { closeTwoFactorPage } from "./shared/twoFactorPage.js";
+import { textResult } from "./shared/results.js";
 
-export class LogoutTool extends BaseTool {
-  getDefinition(): ToolDefinition {
-    return {
-      name: "instagram_logout",
-      description: "Logout from Instagram and clear the saved session. This will invalidate the current session and require re-authentication for future operations.",
-      inputSchema: {
-        type: "object",
-        properties: {},
-        required: [],
-      },
-    };
-  }
+/** Upper bound for the best-effort server-side logout request. */
+const REVOKE_TIMEOUT_MS = 10_000;
 
-  async execute(args: Record<string, unknown>): Promise<ToolResult> {
-    // Check if already logged out
-    if (!igpapiClient.isLoggedIn()) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Already logged out. No active session to clear.",
-          },
-        ],
-      };
-    }
-
-    // Get current user info before logout (for confirmation message)
-    let username: string | undefined;
+/**
+ * Ends the session on Instagram (best effort) and clears all local state.
+ * Returns whether Instagram confirmed the logout.
+ */
+async function endSession(): Promise<boolean> {
+  let revoked = false;
+  if (igpapiClient.isLoggedIn()) {
+    // Deleting the file alone leaves the cookies valid on Instagram. Offline
+    // or an already-dead session must not block the local logout.
     try {
-      const currentUser = await igpapiClient.getCurrentUser();
-      username = currentUser.username;
+      revoked = (await withTimeout(new InstagramApi(igpapiClient.getClient()).logout(), REVOKE_TIMEOUT_MS)).done;
     } catch {
-      // User info might not be available, continue with logout anyway
+      revoked = false;
     }
-
-    // Perform logout
-    await igpapiClient.logout();
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Successfully logged out from Instagram${username ? ` (${username})` : ""}.\n\nSession has been cleared. You will need to login again to use Instagram features.`,
-        },
-      ],
-    };
   }
+  // Always clear local state: a session file that failed to load, or a
+  // pending two-factor login, must not survive a logout.
+  await igpapiClient.logout();
+  return revoked;
 }
 
+export function registerLogout(server: McpServer): void {
+  server.registerTool(
+    "instagram_logout",
+    {
+      title: "Log out of Instagram",
+      description:
+        "Log out of Instagram: end the session on Instagram's side (best effort) and delete the saved session " +
+        "file. After this, instagram_login must be called before any other Instagram tool works. If the session " +
+        "came from IG_SESSION_ID (a browser cookie), this also logs out that browser session, and IG_SESSION_ID " +
+        "stops working until it is replaced with a fresh cookie.",
+      inputSchema: z.object({}).strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async () => {
+      await waitForStartup();
+      // A code page for a pending login must not outlive the logout.
+      closeTwoFactorPage();
+      const wasLoggedIn = igpapiClient.isLoggedIn();
+      const username = igpapiClient.getUsername();
+      const revoked = await endSession();
+
+      if (!wasLoggedIn) {
+        return textResult(
+          "There was no active Instagram session. Any saved session file and pending two-factor login were cleared."
+        );
+      }
+      const who = username ? ` (@${username})` : "";
+      const summary = revoked
+        ? `Logged out of Instagram${who}. The session was ended on Instagram and the saved session file was deleted.`
+        : `Logged out of Instagram${who}. The saved session file was deleted, but Instagram could not be reached to end the session there.`;
+      // Ending the session server-side also ends the browser session the
+      // IG_SESSION_ID cookie was copied from.
+      const browserNote =
+        revoked && getConfig().igpapi?.sessionId
+          ? " This also logged out the browser session IG_SESSION_ID came from: copy a fresh `sessionid` cookie into IG_SESSION_ID and restart the server to log in again."
+          : "";
+      return textResult(summary + browserNote);
+    }
+  );
+}

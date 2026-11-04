@@ -11,20 +11,20 @@ The repository is available at: https://github.com/anand-kamble/mcp-instagram
 git clone https://github.com/anand-kamble/mcp-instagram.git
 cd mcp-instagram
 
-# Install dependencies
-npm install
+# Install dependencies and build (Node.js 22 or newer)
+yarn install --frozen-lockfile
+yarn build
 
-# Run with npx (builds automatically if needed)
-npx mcp-instagram
+# Run the server over stdio
+node bin/insta-mcp.js
 ```
 
-### Method 2: Using npx with Local Path
+### Method 2: Run the clone from anywhere
 
-After cloning, you can run from anywhere:
+After cloning and building, you can run it from any directory:
 
 ```bash
-# From any directory
-npx /absolute/path/to/mcp-instagram
+node /absolute/path/to/mcp-instagram/bin/insta-mcp.js
 ```
 
 ### Method 3: Traditional npm Scripts
@@ -32,9 +32,9 @@ npx /absolute/path/to/mcp-instagram
 ```bash
 git clone https://github.com/anand-kamble/mcp-instagram.git
 cd mcp-instagram
-npm install
-npm run build
-npm start
+yarn install --frozen-lockfile
+yarn build
+yarn start
 ```
 
 ## Publishing to npm (For Global npx Access)
@@ -66,7 +66,8 @@ The repository includes a GitHub Actions workflow that automatically publishes t
    - Tag version: `v1.0.0` (or any version)
    - Release title: `v1.0.0`
    - Click "Publish release"
-   - The GitHub Action will automatically publish to npm!
+   - The GitHub Action will automatically publish to npm, with a provenance attestation linking the package to the workflow run, and attach a Claude Desktop bundle (`mcp-instagram-<version>.mcpb`) with its own build attestation to the release.
+   - Pushing a `v<version>` tag (for example `git tag v0.1.0 && git push origin v0.1.0`) does the same and creates the GitHub release if it does not exist yet. The tag must be plain semver after the `v`.
 
 #### Manual Publishing (Alternative)
 
@@ -84,6 +85,7 @@ If you prefer to publish manually:
 
 3. **Publish the package**:
    ```bash
+   yarn build
    npm publish --access public
    ```
 
@@ -98,6 +100,19 @@ If you prefer to publish manually:
    mcp-instagram
    ```
 
+## Publishing to the MCP Registry
+
+The server is described for the [MCP Registry](https://registry.modelcontextprotocol.io) by `server.json` in the repository root. The registry verifies npm packages by reading `mcpName` from the published `package.json`, so publish to npm first.
+
+1. Keep the versions in sync: `version` in `package.json`, and both `version` fields in `server.json`, must match the npm release.
+2. Install the publisher CLI (see https://modelcontextprotocol.io/registry/quickstart), then run:
+   ```bash
+   mcp-publisher login github
+   mcp-publisher publish
+   ```
+
+The registry is still in preview, so check the quickstart for changes before publishing.
+
 ## Configuration for MCP Clients
 
 ### For Cursor IDE
@@ -108,9 +123,9 @@ Add to `.cursor/mcp.json` or `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "mcp-instagram": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "/absolute/path/to/mcp-instagram"
+        "/absolute/path/to/mcp-instagram/bin/insta-mcp.js"
       ],
       "env": {
         "IG_USERNAME": "your_instagram_username",
@@ -132,9 +147,9 @@ Add to your Claude Desktop config file:
 {
   "mcpServers": {
     "mcp-instagram": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "/absolute/path/to/mcp-instagram"
+        "/absolute/path/to/mcp-instagram/bin/insta-mcp.js"
       ],
       "env": {
         "IG_USERNAME": "your_instagram_username",
@@ -161,7 +176,7 @@ npx mcp-instagram
 
 If you encounter build errors, ensure you have the correct Node.js version:
 ```bash
-node --version  # Should be 18+ or 20+
+node --version  # Should be v22 or newer
 ```
 
 ### Permission Errors
@@ -174,8 +189,9 @@ chmod +x bin/insta-mcp.js
 
 ### Module Not Found
 
-If you see module errors, ensure dependencies are installed:
+If you see module errors, ensure dependencies are installed and the project is built:
 ```bash
-npm install
+yarn install --frozen-lockfile
+yarn build
 ```
 

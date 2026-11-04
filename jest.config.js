@@ -18,6 +18,9 @@ export default {
     "^(\\.{1,2}/.*)\\.js$": "$1",
   },
   testMatch: ["**/__tests__/**/*.test.ts"],
+  // Points session storage at a throwaway path so no test can read, migrate
+  // or delete a developer's real saved session.
+  setupFiles: ["<rootDir>/src/__tests__/setup-env.ts"],
   collectCoverageFrom: [
     "src/**/*.ts",
     "!src/**/*.d.ts",

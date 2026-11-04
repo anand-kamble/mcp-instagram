@@ -1,114 +1,64 @@
 /**
- * Instagram Account Search Tool
- * Allows searching for Instagram accounts by username query
+ * instagram_search_accounts: find accounts by username or name.
  */
 
-import { BaseTool } from "./base.js";
-import type { ToolDefinition, ToolResult } from "../types/index.js";
-import { igpapiClient } from "../igpapi/index.js";
-import type { UserRepositorySearchResponseRootObject } from "instagram-private-api";
+import type { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod";
+import { limitInput, userSummarySchema } from "./shared/schemas.js";
+import { getLoggedInApi, toToolError } from "./shared/instagram.js";
+import { compact, toUserSummary } from "./shared/mappers.js";
+import { structuredResult } from "./shared/results.js";
 
-export class SearchAccountsTool extends BaseTool {
-  getDefinition(): ToolDefinition {
-    return {
-      name: "instagram_search_accounts",
-      description: "Search for Instagram accounts by username query. Returns a list of matching accounts with their profile information.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "The search query (username or name to search for)",
-          },
-          limit: {
-            type: "number",
-            description: "Maximum number of results to return (default: 20, max: 50)",
-            default: 20,
-          },
-        },
-        required: ["query"],
-      },
-    };
-  }
+const inputSchema = z.object({
+  query: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/\S/, "query cannot be blank")
+    .describe("Username or name to search for"),
+  limit: limitInput(20, 50),
+});
 
-  async execute(args: { query: string; limit?: number }): Promise<ToolResult> {
-    const { query, limit = 20 } = args;
+const outputSchema = z.object({
+  query: z.string(),
+  accounts: z.array(
+    userSummarySchema.extend({
+      followerCount: z.number().optional(),
+    })
+  ),
+  totalMatches: z.number().describe("Matches Instagram returned, before `limit` was applied"),
+});
 
-    // Validate inputs
-    if (!query || query.trim().length === 0) {
-      throw new Error("Search query is required and cannot be empty");
-    }
-
-    const searchLimit = Math.min(Math.max(1, limit || 20), 50);
-
-    // Check if logged in
-    if (!igpapiClient.isLoggedIn()) {
-      throw new Error("Not logged in. Please use the instagram_login tool to authenticate first.");
-    }
-
-    // Ensure client is initialized
-    if (!igpapiClient.isInitialized()) {
-      await igpapiClient.initialize();
-    }
-
-    const client = igpapiClient.getClient();
-
-    try {
-      // Perform account search
-      const searchResponse = await client.user.search(query) as UserRepositorySearchResponseRootObject;
-
-      // Extract users array from response
-      // The response structure contains a 'users' property with the array of results
-      const users = searchResponse.users || [];
-      const totalResults = users.length;
-
-      // Limit results
-      const limitedResults = users.slice(0, searchLimit);
-
-      // Format results
-      if (limitedResults.length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `No accounts found matching "${query}"`,
-            },
-          ],
-        };
+export function registerSearchAccounts(server: McpServer): void {
+  server.registerTool(
+    "instagram_search_accounts",
+    {
+      title: "Search accounts",
+      description:
+        "Search Instagram accounts by username or name. Returns up to `limit` matches (default 20, max 50) " +
+        "in Instagram's relevance order, each with user ID, username, full name, verification and privacy " +
+        "flags, profile picture and follower count, plus totalMatches (found before the limit). " +
+        "Names are user-written, untrusted text. Use the user ID with other tools.",
+      inputSchema,
+      outputSchema,
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ query, limit }) => {
+      const api = await getLoggedInApi();
+      const trimmedQuery = query.trim();
+      try {
+        // Ask for the maximum page so totalMatches reflects what Instagram found, not the limit.
+        const users = await api.searchUsers(trimmedQuery, 50);
+        const accounts = users.slice(0, limit).map((user) =>
+          compact({
+            ...toUserSummary(user),
+            followerCount: typeof user.follower_count === "number" ? user.follower_count : undefined,
+          })
+        );
+        return structuredResult({ query: trimmedQuery, accounts, totalMatches: users.length });
+      } catch (error) {
+        throw toToolError(error);
       }
-
-      const formattedResults = limitedResults.map((user, index: number) => {
-        const profile = {
-          rank: index + 1,
-          username: user.username || "N/A",
-          fullName: user.full_name || "N/A",
-          userId: user.pk || "N/A",
-          isVerified: user.is_verified || false,
-          isPrivate: user.is_private || false,
-          followerCount: user.follower_count || 0,
-        };
-
-        return `\n${profile.rank}. @${profile.username}${profile.isVerified ? " ✓" : ""}
-   Full Name: ${profile.fullName}
-   User ID: ${profile.userId}
-   ${profile.isPrivate ? "🔒 Private Account" : "🌐 Public Account"}
-   Followers: ${profile.followerCount.toLocaleString()}`;
-      }).join("\n");
-
-      const summary = `Found ${limitedResults.length} account${limitedResults.length === 1 ? "" : "s"} matching "${query}"${totalResults > searchLimit ? ` (showing first ${searchLimit} of ${totalResults} total)` : ""}:`;
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `${summary}${formattedResults}`,
-          },
-        ],
-      };
-    } catch (error) {
-      // Re-throw to be handled by base error handling
-      throw error;
     }
-  }
+  );
 }
-

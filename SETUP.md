@@ -2,14 +2,16 @@
 
 ## Prerequisites
 
+Node.js 22 or newer.
+
 1. **Install dependencies:**
    ```bash
-   npm install
+   yarn install --frozen-lockfile
    ```
 
 2. **Build the project:**
    ```bash
-   npm run build
+   yarn build
    ```
 
 ## Configuration
@@ -27,7 +29,7 @@ Add the following configuration to your `mcpServers` object:
     "mcp-instagram": {
       "command": "npx",
       "args": [
-        "/home/iunme/mcp-instagram"
+        "/absolute/path/to/mcp-instagram"
       ],
       "env": {
         "IG_USERNAME": "your_instagram_username",
@@ -45,7 +47,7 @@ Add the following configuration to your `mcpServers` object:
     "mcp-instagram": {
       "command": "node",
       "args": [
-        "/home/iunme/mcp-instagram/build/server.js"
+        "/absolute/path/to/mcp-instagram/build/server.js"
       ],
       "env": {
         "IG_USERNAME": "your_instagram_username",
@@ -56,7 +58,7 @@ Add the following configuration to your `mcpServers` object:
 }
 ```
 
-**Note:** Replace `/home/iunme/mcp-instagram` with the absolute path to your project directory.
+**Note:** Replace `/absolute/path/to/mcp-instagram` with the absolute path to your project directory.
 
 ### For Claude Desktop
 
@@ -107,12 +109,12 @@ Add the following to the `mcpServers` section:
 **Important:** 
 - Use absolute paths (not relative paths)
 - Replace `/absolute/path/to/mcp-instagram` with your actual project path
-- Make sure Node.js is in your PATH, or use the full path to node (e.g., `/home/iunme/.nvm/versions/node/v24.11.0/bin/node`)
+- Make sure Node.js is in your PATH, or use the full path to node (e.g., `/Users/you/.nvm/versions/node/v24.11.0/bin/node`)
 
 ## Environment Variables (Optional)
 
 Instead of hardcoding credentials in the config, you can use environment variables. The server will automatically load from:
-- Environment variables: `IG_USERNAME`, `IG_PASSWORD`, `IG_SESSION_ID`, `IG_DEVICE_ID`
+- Environment variables: `IG_USERNAME` and `IG_PASSWORD`, or `IG_SESSION_ID` (the `sessionid` cookie of a logged-in instagram.com browser session), plus the optional `IG_SESSION_DIR` and `IG_RATE_LIMITS` (see "Logging in" and "Configuration" in README.md)
 - Or set them in the `env` section of the MCP config (as shown above)
 
 ## Verifying the Setup
@@ -125,15 +127,15 @@ Instead of hardcoding credentials in the config, you can use environment variabl
 
 ### Server not starting
 - Verify the path to `build/server.js` is correct and absolute
-- Ensure the project has been built (`npm run build`)
+- Ensure the project has been built (`yarn build`)
 - Check that Node.js is accessible from the PATH
 
 ### Authentication errors
-- Verify your Instagram credentials are correct
-- Check if 2FA is enabled (the server supports 2FA)
+- Verify your Instagram credentials, and enter the two-factor code when asked (email, SMS or authenticator app)
+- With `IG_SESSION_ID`: if you logged out in the browser or changed your password, copy a fresh `sessionid` cookie
 - Ensure environment variables are set correctly
 
 ### Session persistence
-- Sessions are saved to `data/session.json` in the project directory
-- Delete this file if you need to force a new login
+- Sessions are saved to `session.json` in `~/.config/mcp-instagram/` (macOS/Linux) or `%APPDATA%\mcp-instagram\` (Windows), or in `IG_SESSION_DIR` if set
+- Use the `instagram_logout` tool, or delete this file, to force a new login
 

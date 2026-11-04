@@ -2,19 +2,26 @@
   "name": "mcp-instagram",
   "version": "0.0.6",
   "description": "MCP server for Instagram",
+  "mcpName": "io.github.anand-kamble/mcp-instagram",
   "type": "module",
   "main": "build/server.js",
   "bin": {
     "mcp-instagram": "./bin/insta-mcp.js"
   },
+  "files": [
+    "build/",
+    "bin/",
+    "NOTICE"
+  ],
   "scripts": {
+    "prebuild": "node -e \"require('fs').rmSync('build',{recursive:true,force:true})\"",
     "build": "tsc",
     "start": "node build/server.js",
     "dev": "tsc --watch",
+    "pretest": "npm run build",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch",
-    "test:coverage": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
-    "test:manual": "npm run build && node build/test-manual.js"
+    "test:coverage": "NODE_OPTIONS=--experimental-vm-modules jest --coverage"
   },
   "keywords": [
     "mcp",
@@ -34,14 +41,17 @@
     "url": "https://github.com/anand-kamble/mcp-instagram/issues"
   },
   "homepage": "https://github.com/anand-kamble/mcp-instagram#readme",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "instagram-private-api": "^1.46.1",
-    "re2": "^1.22.3"
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.2.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
     "@types/jest": "^29.5.0",
-    "@types/node": "^20.0.0",
+    "@types/node": "^22.0.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.0",
     "typescript": "^5.0.0"

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.anand-kamble/mcp-instagram",
+  "title": "Instagram",
+  "description": "Read Instagram profiles, posts, stories and comments, and like, comment and follow.",
+  "websiteUrl": "https://github.com/anand-kamble/mcp-instagram#readme",
+  "repository": {
+    "url": "https://github.com/anand-kamble/mcp-instagram",
+    "source": "github"
+  },
+  "version": "0.0.6",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "mcp-instagram",
+      "version": "0.0.6",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "IG_USERNAME",
+          "description": "Instagram username (or email/phone) for password login. If it is a username, a saved session for another account is refused.",
+          "isRequired": false
+        },
+        {
+          "name": "IG_PASSWORD",
+          "description": "Instagram password for login. Sent once, encrypted; never written to disk. Two-factor codes are requested when needed.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "IG_SESSION_ID",
+          "description": "Alternative to a password: the `sessionid` cookie of a logged-in instagram.com browser session.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "IG_SESSION_DIR",
+          "description": "Private directory for the saved session (default: ~/.config/mcp-instagram, or %APPDATA%\\mcp-instagram on Windows).",
+          "isRequired": false,
+          "format": "filepath"
+        },
+        {
+          "name": "IG_RATE_LIMITS",
+          "description": "JSON overrides for like/comment/follow/login limits, e.g. {\"like\":{\"perHour\":100}}.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

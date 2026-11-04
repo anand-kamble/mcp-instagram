@@ -1,73 +1,48 @@
 /**
- * Tools registry
- * Import and export all tools here for easy registration
+ * Tool registry.
+ *
+ * Registration order is the order clients see in tools/list. Keep it static:
+ * the 2026-07-28 spec asks servers to list tools in a deterministic order so
+ * clients can cache prompts.
  */
 
-import { ExampleTool } from "./example.js";
-import { LoginTool } from "./login.js";
-import { Complete2FATool } from "./complete_2fa.js";
-import { SearchAccountsTool } from "./search_accounts.js";
-import { LogoutTool } from "./logout.js";
-import { GetUserProfileTool } from "./get_user_profile.js";
-import { GetCurrentUserProfileTool } from "./get_current_user_profile.js";
-import { GetUserPostsTool } from "./get_user_posts.js";
-import { LikePostTool } from "./like_post.js";
-import { LikeCommentTool } from "./like_comment.js";
-import { CommentOnPostTool } from "./comment_on_post.js";
-import { GetPostCommentsTool } from "./get_post_comments.js";
-import { GetPostDetailsTool } from "./get_post_details.js";
-import { GetUserStoriesTool } from "./get_user_stories.js";
-import { GetTimelineFeedTool } from "./get_timeline_feed.js";
-import { FollowUserTool } from "./follow_user.js";
-import type { BaseTool } from "./base.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import { registerLogin } from "./login.js";
+import { registerCompleteTwoFactor } from "./complete_2fa.js";
+import { registerSearchAccounts } from "./search_accounts.js";
+import { registerLogout } from "./logout.js";
+import { registerGetUserProfile } from "./get_user_profile.js";
+import { registerGetCurrentUserProfile } from "./get_current_user_profile.js";
+import { registerGetUserPosts } from "./get_user_posts.js";
+import { registerLikePost } from "./like_post.js";
+import { registerLikeComment } from "./like_comment.js";
+import { registerCommentOnPost } from "./comment_on_post.js";
+import { registerGetPostComments } from "./get_post_comments.js";
+import { registerGetPostDetails } from "./get_post_details.js";
+import { registerGetUserStories } from "./get_user_stories.js";
+import { registerGetTimelineFeed } from "./get_timeline_feed.js";
+import { registerFollowUser } from "./follow_user.js";
 
-// Import all tools
-const tools: BaseTool[] = [
-  new LoginTool(),
-  new Complete2FATool(),
-  new SearchAccountsTool(),
-  new LogoutTool(),
-  new GetUserProfileTool(),
-  new GetCurrentUserProfileTool(),
-  new GetUserPostsTool(),
-  new LikePostTool(),
-  new LikeCommentTool(),
-  new CommentOnPostTool(),
-  new GetPostCommentsTool(),
-  new GetPostDetailsTool(),
-  new GetUserStoriesTool(),
-  new GetTimelineFeedTool(),
-  new FollowUserTool(),
-  // Add more tools here as you create them
+const registrations: Array<(server: McpServer) => void> = [
+  registerLogin,
+  registerCompleteTwoFactor,
+  registerSearchAccounts,
+  registerLogout,
+  registerGetUserProfile,
+  registerGetCurrentUserProfile,
+  registerGetUserPosts,
+  registerLikePost,
+  registerLikeComment,
+  registerCommentOnPost,
+  registerGetPostComments,
+  registerGetPostDetails,
+  registerGetUserStories,
+  registerGetTimelineFeed,
+  registerFollowUser,
 ];
 
-/**
- * Get all tool definitions for MCP server registration
- */
-export function getAllToolDefinitions() {
-  return tools.map((tool) => tool.getDefinition());
-}
-
-/**
- * Execute a tool by name
- */
-export async function executeTool(
-  name: string,
-  args: Record<string, any>
-): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
-  const tool = tools.find((t) => t.getDefinition().name === name);
-
-  if (!tool) {
-    throw new Error(`Tool not found: ${name}`);
+export function registerTools(server: McpServer): void {
+  for (const register of registrations) {
+    register(server);
   }
-
-  return await tool.executeWithErrorHandling(args);
 }
-
-/**
- * Get all registered tool names
- */
-export function getToolNames(): string[] {
-  return tools.map((tool) => tool.getDefinition().name);
-}
-

@@ -1,5 +1,7 @@
 name: Publish to npm
 
+# Releases are cut by pushing a `v<semver>` tag (or creating a GitHub release
+# for one). The manual trigger publishes a given version without a bundle.
 on:
   release:
     types: [created]
@@ -18,16 +20,23 @@ jobs:
     runs-on: ubuntu-latest
     environment: mc-instagram-build
     permissions:
-      contents: write
+      contents: read
+      # Required for npm provenance attestations.
       id-token: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
+          # No dependency cache in the release job, to rule out cache poisoning.
+          package-manager-cache: false
           registry-url: 'https://registry.npmjs.org'
 
       - name: Enable Corepack (for Yarn)
@@ -41,40 +50,97 @@ jobs:
 
       - name: Run tests
         run: yarn test
+
+      # Inputs and ref names are passed through env, never interpolated into
+      # the script, and must be plain semver.
+      - name: Determine version
+        id: version
         env:
-          NODE_OPTIONS: '--experimental-vm-modules'
-
-      - name: Extract version from tag (if pushed tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        id: tag_version
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION"
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${REF_NAME#v}"
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Not a semver version: $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Update package version (for tag push)
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          npm version $VERSION --no-git-tag-version --allow-same-version
+      - name: Set package version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
-      - name: Publish to npm (on release)
-        if: github.event_name == 'release'
+      # Creating a release for a new tag can trigger both the `release` and the
+      # tag `push` event, so publishing must be idempotent.
+      - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
-
-      - name: Publish to npm (on tag push)
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
-
-      - name: Publish to npm (manual workflow)
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          npm version ${{ github.event.inputs.version }} --no-git-tag-version --allow-same-version
-          npm publish --access public
+          if npm view "mcp-instagram@$VERSION" version >/dev/null 2>&1; then
+            echo "mcp-instagram@$VERSION is already on npm; skipping publish."
+          else
+            npm publish --access public --provenance
+          fi
 
+  mcpb:
+    # Attach a Claude Desktop bundle (.mcpb) to the GitHub release for the tag.
+    if: github.event_name != 'workflow_dispatch'
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release if needed and upload the asset
+      id-token: write # sign the build provenance attestation
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Enable Corepack (for Yarn)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build project
+        run: yarn build
+
+      - name: Set package version
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Pack bundle
+        run: node scripts/pack-mcpb.mjs
+
+      - name: Attest bundle provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: 'dist/*.mcpb'
+
+      - name: Upload bundle to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Tolerate a concurrent run creating it first.
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --generate-notes \
+              || gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          fi
+          gh release upload "$TAG" dist/*.mcpb --clobber --repo "$GITHUB_REPOSITORY"
