@@ -77,6 +77,7 @@ function decode(buffer: Buffer, encoding: string | undefined): Buffer {
 /** HTTP/2-only transport with pooled sessions per origin. `ca` replaces the trusted roots (tests only). */
 export function createH2Transport(options: { ca?: string | Buffer } = {}): Transport {
   const sessions = new Map<string, ClientHttp2Session>();
+  const active = new WeakMap<ClientHttp2Session, number>();
   const session = (origin: string): ClientHttp2Session => {
     const existing = sessions.get(origin);
     if (existing && !existing.closed && !existing.destroyed) return existing;
@@ -92,7 +93,6 @@ export function createH2Transport(options: { ca?: string | Buffer } = {}): Trans
     created.on("error", forget);
     created.on("close", forget);
     created.setTimeout(60_000, () => created.close());
-    created.unref();
     sessions.set(origin, created);
     return created;
   };
@@ -116,9 +116,16 @@ export function createH2Transport(options: { ca?: string | Buffer } = {}): Trans
       let stream;
       try {
         const s = session(url.origin);
+        // Keep the process alive while requests are in flight, and let it exit
+        // once the session is idle (the MCP server's stdio keeps it alive anyway).
+        active.set(s, (active.get(s) ?? 0) + 1);
         s.ref();
         stream = s.request(headers, { endStream: req.body === undefined, signal: req.signal });
-        stream.on("close", () => s.unref());
+        stream.on("close", () => {
+          const remaining = (active.get(s) ?? 1) - 1;
+          active.set(s, remaining);
+          if (remaining === 0) s.unref();
+        });
       } catch (error) {
         reject(error);
         return;
