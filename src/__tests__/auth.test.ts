@@ -1,6 +1,6 @@
 /**
  * instagram_login / instagram_complete_2fa / instagram_logout, including the
- * two-factor elicitation flow on both protocol eras.
+ * two-factor code page (URL elicitation) on both protocol eras.
  */
 
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
@@ -70,19 +70,52 @@ function fakeAccount(initial: Partial<FakeAccount> = {}): FakeAccount {
   return state;
 }
 
-type ElicitAnswer = { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" };
+/** What the simulated user does with a URL elicitation, before answering it. */
+type PageAction =
+  | { action: "accept"; codes?: string[]; delayMs?: number }
+  | { action: "decline" | "cancel" };
 
-/** Registers an elicitation handler that replays `answers` in order and records each request. */
-function answerElicitations(answers: ElicitAnswer[], seen: unknown[]) {
+interface SeenUrlElicitation {
+  mode?: string;
+  url: string;
+  message: string;
+}
+
+/** Posts a code to the page the way the browser form does. */
+async function postCode(url: string, code: string): Promise<Response> {
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ code }).toString(),
+  });
+}
+
+/**
+ * Registers an elicitation handler that plays the user: for "accept" it opens
+ * the page and types each code (immediately, or after `delayMs` while the
+ * tool is already waiting), then answers the elicitation.
+ */
+function answerUrlElicitations(actions: PageAction[], seen: SeenUrlElicitation[], pageStatuses: number[] = []) {
   return (client: Client) => {
     client.setRequestHandler("elicitation/create", async (request) => {
-      seen.push(request.params);
-      return answers.shift() ?? { action: "cancel" };
+      const params = request.params as unknown as SeenUrlElicitation;
+      seen.push(params);
+      const next = actions.shift() ?? { action: "cancel" as const };
+      if (next.action === "accept") {
+        const type = async () => {
+          pageStatuses.push((await fetch(params.url)).status);
+          for (const code of next.codes ?? []) pageStatuses.push((await postCode(params.url, code)).status);
+        };
+        if (next.delayMs) setTimeout(() => void type(), next.delayMs);
+        else await type();
+        return { action: "accept" as const };
+      }
+      return { action: next.action };
     });
   };
 }
 
-const ELICITATION = { elicitation: { form: {} } };
+const URL_ELICITATION = { elicitation: { url: {} } };
 
 beforeEach(() => {
   setConfig({ igpapi: { username: "alice", password: "secret-password" } });
@@ -148,13 +181,14 @@ describe.each(ERAS)("instagram_login on the %s era", (era) => {
     expect(textOf(result)).toContain("IG_USERNAME");
   });
 
-  it("asks for the 2FA code through elicitation and completes the login", async () => {
+  it("opens the one-time code page through URL elicitation and completes the login", async () => {
     const account = fakeAccount({ requiresTwoFactor: true });
-    const seen: unknown[] = [];
+    const seen: SeenUrlElicitation[] = [];
+    const statuses: number[] = [];
     connection = await connect(
       era,
-      ELICITATION,
-      answerElicitations([{ action: "accept", content: { code: "123 456" } }], seen)
+      URL_ELICITATION,
+      answerUrlElicitations([{ action: "accept", codes: ["123 456"] }], seen, statuses)
     );
     const result = await call(connection, "instagram_login");
     expect(result.isError).toBeFalsy();
@@ -162,76 +196,111 @@ describe.each(ERAS)("instagram_login on the %s era", (era) => {
     expect(account.loggedIn).toBe(true);
     expect(igpapiClient.completeTwoFactorLogin).toHaveBeenCalledWith("123456");
     expect(igpapiClient.login).toHaveBeenCalledTimes(1);
+    expect(statuses).toEqual([200, 200]);
 
     expect(seen).toHaveLength(1);
-    const request = seen[0] as { message: string; requestedSchema: { properties: Record<string, unknown> } };
-    expect(Object.keys(request.requestedSchema.properties)).toEqual(["code"]);
-    expect(request.message).toContain("SMS");
-    expect(JSON.stringify(request)).not.toContain("secret-password");
+    expect(seen[0].mode).toBe("url");
+    expect(seen[0].url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/2fa\/[A-Za-z0-9_-]{43}$/);
+    expect(seen[0].message).toContain("SMS");
+    expect(JSON.stringify(seen)).not.toContain("secret-password");
   });
 
-  it("asks again when the code is malformed", async () => {
-    const account = fakeAccount({ requiresTwoFactor: true });
-    const seen: unknown[] = [];
+  it("never asks for the code with a form", async () => {
+    fakeAccount({ requiresTwoFactor: true });
+    const seen: SeenUrlElicitation[] = [];
     connection = await connect(
       era,
-      ELICITATION,
-      answerElicitations(
-        [
-          { action: "accept", content: { code: "abcdefg" } },
-          { action: "accept", content: { code: "123456" } },
-        ],
-        seen
-      )
+      { elicitation: { form: {}, url: {} } },
+      answerUrlElicitations([{ action: "cancel" }], seen)
+    );
+    await call(connection, "instagram_login");
+    expect(seen.every((request) => request.mode === "url")).toBe(true);
+  });
+
+  it("keeps the page usable after a malformed code", async () => {
+    const account = fakeAccount({ requiresTwoFactor: true });
+    const statuses: number[] = [];
+    connection = await connect(
+      era,
+      URL_ELICITATION,
+      answerUrlElicitations([{ action: "accept", codes: ["12ab", "123456"] }], [], statuses)
     );
     const result = await call(connection, "instagram_login");
+    expect(statuses).toEqual([200, 400, 200]);
     expect(account.loggedIn).toBe(true);
-    expect(seen).toHaveLength(2);
-    expect((seen[1] as { message: string }).message).toContain("not valid");
     expect(result.isError).toBeFalsy();
+  });
+
+  it("waits for a code typed after the page was opened", async () => {
+    const account = fakeAccount({ requiresTwoFactor: true });
+    connection = await connect(
+      era,
+      URL_ELICITATION,
+      answerUrlElicitations([{ action: "accept", codes: ["123456"], delayMs: 100 }], [])
+    );
+    const result = await call(connection, "instagram_login");
+    expect(result.isError).toBeFalsy();
+    expect(account.loggedIn).toBe(true);
+  });
+
+  it("returns an error when Instagram rejects the code, and closes the page", async () => {
+    fakeAccount({ requiresTwoFactor: true });
+    const seen: SeenUrlElicitation[] = [];
+    connection = await connect(
+      era,
+      URL_ELICITATION,
+      answerUrlElicitations([{ action: "accept", codes: ["999999"] }], seen)
+    );
+    const result = await call(connection, "instagram_login");
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("instagram_login again");
+    await expect(fetch(seen[0].url)).rejects.toThrow();
   });
 
   it("leaves the login pending and points to instagram_complete_2fa when the prompt is dismissed", async () => {
     const account = fakeAccount({ requiresTwoFactor: true });
-    connection = await connect(era, ELICITATION, answerElicitations([{ action: "cancel" }], []));
+    connection = await connect(era, URL_ELICITATION, answerUrlElicitations([{ action: "cancel" }], []));
     const result = await call(connection, "instagram_login");
     expect(result.isError).toBeFalsy();
     expect(textOf(result)).toContain("instagram_complete_2fa");
     expect(account.pending).not.toBeNull();
   });
 
-  it("tells the model not to push when the user declines to enter the code", async () => {
+  it("tells the model not to push when the user declines", async () => {
     fakeAccount({ requiresTwoFactor: true });
-    connection = await connect(era, ELICITATION, answerElicitations([{ action: "decline" }], []));
+    connection = await connect(era, URL_ELICITATION, answerUrlElicitations([{ action: "decline" }], []));
     const result = await call(connection, "instagram_login");
     expect(result.isError).toBeFalsy();
     expect(textOf(result)).toContain("declined");
     expect(textOf(result)).not.toContain("instagram_complete_2fa");
   });
 
-  it("returns an error when Instagram rejects the elicited code", async () => {
-    fakeAccount({ requiresTwoFactor: true });
-    connection = await connect(
-      era,
-      ELICITATION,
-      answerElicitations([{ action: "accept", content: { code: "999999" } }], [])
-    );
-    const result = await call(connection, "instagram_login");
-    expect(result.isError).toBe(true);
-    expect(textOf(result)).toContain("instagram_login again");
+  it("gives clients without URL elicitation the page link and the instagram_complete_2fa fallback", async () => {
+    const account = fakeAccount({ requiresTwoFactor: true });
+    connection = await connect(era, { elicitation: { form: {} } });
+    const login = await call(connection, "instagram_login");
+    expect(login.isError).toBeFalsy();
+    const link = textOf(login).match(/http:\/\/127\.0\.0\.1:\d+\/2fa\/\S+/)?.[0];
+    expect(link).toBeDefined();
+    expect(textOf(login)).toContain("instagram_complete_2fa");
+
+    // The user enters the code on the page; the next instagram_login confirms.
+    expect((await postCode(link as string, "123456")).status).toBe(200);
+    expect(account.loggedIn).toBe(true);
+    const confirm = await call(connection, "instagram_login");
+    expect(textOf(confirm)).toContain("Already logged in");
   });
 
-  it("falls back to instagram_complete_2fa when the client cannot show forms", async () => {
+  it("lets instagram_complete_2fa finish the login instead of the page", async () => {
     const account = fakeAccount({ requiresTwoFactor: true });
     connection = await connect(era);
     const login = await call(connection, "instagram_login");
-    expect(login.isError).toBeFalsy();
-    expect(textOf(login)).toContain("instagram_complete_2fa");
-    expect(account.pending).not.toBeNull();
-
+    const link = textOf(login).match(/http:\/\/127\.0\.0\.1:\d+\/2fa\/\S+/)?.[0] as string;
     const complete = await call(connection, "instagram_complete_2fa", { verification_code: "123456" });
     expect(complete.isError).toBeFalsy();
     expect(account.loggedIn).toBe(true);
+    // The page closed with the login.
+    await expect(fetch(link)).rejects.toThrow();
   });
 
   it("does not trigger a second login while a 2FA code is already pending", async () => {

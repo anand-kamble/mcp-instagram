@@ -1,40 +1,38 @@
 /**
  * instagram_login: signs in with the credentials from IG_USERNAME / IG_PASSWORD.
  *
- * When Instagram asks for a two-factor code and the client supports form
- * elicitation, the tool asks the user for the code directly (multi
- * round-trip on 2026-07-28, an `elicitation/create` request on 2025-era
- * connections via the SDK's legacy shim). Otherwise it returns instructions
- * to call instagram_complete_2fa.
+ * When Instagram asks for a two-factor code, the code is entered on a
+ * one-time local web page (shared/twoFactorPage.ts). Clients that support
+ * URL-mode elicitation open that page for the user, so the code never passes
+ * through the client or the model. Other clients get the page URL in the
+ * result, and instagram_complete_2fa remains as a last resort.
  *
- * The password is never elicited: the spec forbids requesting passwords via
- * form elicitation, so it only comes from the environment.
+ * Form-mode elicitation is not used: the spec forbids requesting secrets that
+ * grant access (passwords, and also one-time login codes) in form mode.
  */
 
-import { acceptedContent, inputRequired, inputResponse } from "@modelcontextprotocol/server";
-import type { CallToolResult, InputRequiredResult, McpServer } from "@modelcontextprotocol/server";
+import { inputRequired, inputResponse } from "@modelcontextprotocol/server";
+import type { CallToolResult, InputRequiredResult, McpServer, ServerContext } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { getConfig } from "../config/index.js";
 import { igpapiClient } from "../igpapi/index.js";
 import { isInvalidSessionError } from "../igpapi/client.js";
 import type { TwoFactorAuthInfo } from "../types/index.js";
-import { clientSupportsFormElicitation } from "./shared/elicitation.js";
-import { toToolError, waitForStartup } from "./shared/instagram.js";
+import { clientSupportsUrlElicitation } from "./shared/elicitation.js";
+import { closeTwoFactorPage, latestTwoFactorPage, twoFactorPageFor } from "./shared/twoFactorPage.js";
+import type { TwoFactorOutcome } from "./shared/twoFactorPage.js";
+import { toToolError, waitForStartup, withTimeout } from "./shared/instagram.js";
 import { textResult } from "./shared/results.js";
 
-/** Key of the elicitation request inside `inputRequests` / `inputResponses`. */
-const TWO_FACTOR_KEY = "twoFactorCode";
+/** Key of the URL elicitation inside `inputRequests` / `inputResponses`. */
+const TWO_FACTOR_KEY = "twoFactorPage";
 
-/** Schema sent to the client: only constraints form elicitation can express. */
-const requestedSchema = z.object({
-  code: z
-    .string()
-    .min(6)
-    .max(9)
-    .describe("6-digit code from SMS or your authenticator app (or an 8-digit backup code)"),
-});
-
-const TWO_FACTOR_CODE = /^\d{6,8}$/;
+/**
+ * How long a retried call waits for the user to enter the code on the page.
+ * Stays below the SDK's 60 s default request timeout; a slower user is told
+ * to call instagram_login again, and the page stays valid.
+ */
+const PAGE_WAIT_MS = 50_000;
 
 function isTwoFactorInfo(error: unknown): error is TwoFactorAuthInfo {
   return (
@@ -51,32 +49,63 @@ function describeMethod(info: TwoFactorAuthInfo): string {
     : "Open your authenticator app to get the verification code.";
 }
 
-function askForCode(info: TwoFactorAuthInfo, retryReason?: string): InputRequiredResult {
-  const message = [
-    retryReason,
-    `Instagram requires two-factor authentication for @${info.username}.`,
-    describeMethod(info),
-    "Enter the code to finish signing in.",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  return inputRequired({
-    inputRequests: {
-      [TWO_FACTOR_KEY]: inputRequired.elicit({ message, requestedSchema }),
+/** Opens, or reuses, the one-time code page for this pending login. */
+function openCodePage(info: TwoFactorAuthInfo) {
+  return twoFactorPageFor({
+    owner: info,
+    description:
+      `Instagram requires two-factor authentication for @${info.username}.\n` +
+      `${describeMethod(info)}\nEnter the code here to finish logging in.`,
+    submit: async (code) => {
+      // A logout or a newer login replaces the pending login: never submit
+      // a code into a login this page was not opened for.
+      if (igpapiClient.getTwoFactorInfo() !== info) {
+        throw new Error("This login is no longer pending.");
+      }
+      await igpapiClient.completeTwoFactorLogin(code);
     },
   });
 }
 
-function manualTwoFactorResult(info: TwoFactorAuthInfo, prefix?: string): CallToolResult {
+/** Asks the user for the code through the page: URL elicitation if possible, else a link in the result. */
+async function requestCode(
+  server: McpServer,
+  ctx: ServerContext,
+  info: TwoFactorAuthInfo
+): Promise<CallToolResult | InputRequiredResult> {
+  const page = await openCodePage(info);
+  if (clientSupportsUrlElicitation(server, ctx)) {
+    return inputRequired({
+      inputRequests: {
+        [TWO_FACTOR_KEY]: inputRequired.elicitUrl({
+          url: page.url,
+          message: `Instagram requires two-factor authentication for @${info.username}. ${describeMethod(info)} Open this page to enter the code.`,
+        }),
+      },
+    });
+  }
   return textResult(
     [
-      prefix,
       `Two-factor authentication is required for @${info.username}. ${describeMethod(info)}`,
-      "Ask the user for the code, then call the instagram_complete_2fa tool with it as verification_code.",
-    ]
-      .filter(Boolean)
-      .join("\n\n")
+      `Ask the user to open this page on this computer and enter the code there (valid for 10 minutes): ${page.url}`,
+      "Then call instagram_login again to confirm. If the user cannot open the page, ask them for the code and call " +
+        "instagram_complete_2fa with it as verification_code.",
+    ].join("\n\n")
   );
+}
+
+async function resultFor(outcome: TwoFactorOutcome): Promise<CallToolResult> {
+  switch (outcome.status) {
+    case "completed":
+      return loggedInSummary("Logged in to Instagram (two-factor authentication completed).");
+    case "rejected":
+      throw new Error(
+        `Instagram rejected the two-factor code (${toToolError(new Error(outcome.message)).message}). ` +
+          "Call instagram_login again to get a new code."
+      );
+    case "expired":
+      throw new Error("The code page closed before a code was entered. Call instagram_login again.");
+  }
 }
 
 async function loggedInSummary(prefix: string): Promise<CallToolResult> {
@@ -108,39 +137,38 @@ export function registerLogin(server: McpServer): void {
     async (_args, ctx) => {
       await waitForStartup();
 
-      // Re-entry: the client answered our two-factor elicitation.
+      // Re-entry: the client answered our request to open the code page.
       const answer = inputResponse(ctx.mcpReq.inputResponses, TWO_FACTOR_KEY);
       if (answer.kind === "elicit") {
-        const pending = igpapiClient.getTwoFactorInfo();
-        if (!pending) {
-          throw new Error("There is no pending two-factor login. Call instagram_login again to start over.");
-        }
         if (answer.action === "decline") {
+          closeTwoFactorPage();
           return textResult(
             "The user declined to enter the two-factor code, so the Instagram login is not complete. " +
               "Don't ask for the code again unless the user asks to log in."
           );
         }
         if (answer.action === "cancel") {
-          return manualTwoFactorResult(pending, "The code prompt was dismissed. The login is still pending.");
-        }
-        const content = acceptedContent(
-          ctx.mcpReq.inputResponses,
-          TWO_FACTOR_KEY,
-          z.object({ code: z.string() })
-        );
-        const code = content?.code.replace(/\s+/g, "") ?? "";
-        if (!TWO_FACTOR_CODE.test(code)) {
-          return askForCode(pending, "That code was not valid: it must be 6 to 8 digits.");
-        }
-        try {
-          await igpapiClient.completeTwoFactorLogin(code);
-        } catch (error) {
-          throw new Error(
-            `Instagram rejected the two-factor code (${toToolError(error).message}). Call instagram_login again to get a new code.`
+          return textResult(
+            "The user dismissed the prompt to open the code page. The login is still pending: call instagram_login " +
+              "again to show it again, or ask the user for the code and call instagram_complete_2fa."
           );
         }
-        return loggedInSummary("Logged in to Instagram (two-factor authentication completed).");
+        // Accepted: the client opened the page for the user. Wait for the code.
+        const page = latestTwoFactorPage();
+        if (!page) {
+          if (igpapiClient.isLoggedIn()) {
+            return loggedInSummary("Logged in to Instagram (two-factor authentication completed).");
+          }
+          throw new Error("There is no pending two-factor login. Call instagram_login again to start over.");
+        }
+        const waited = await withTimeout(page.outcome, PAGE_WAIT_MS);
+        if (!waited.done) {
+          return textResult(
+            "Waiting for the user to enter the code on the page that was opened. Once they have, call " +
+              "instagram_login again to confirm."
+          );
+        }
+        return resultFor(waited.value);
       }
 
       const credentials = getConfig().igpapi;
@@ -164,7 +192,7 @@ export function registerLogin(server: McpServer): void {
       // waiting for a code. Logging in again would make Instagram send another SMS.
       const pending = igpapiClient.getTwoFactorInfo();
       if (pending) {
-        return clientSupportsFormElicitation(server, ctx) ? askForCode(pending) : manualTwoFactorResult(pending);
+        return requestCode(server, ctx, pending);
       }
 
       if (!username || !password) {
@@ -174,13 +202,13 @@ export function registerLogin(server: McpServer): void {
         );
       }
 
+      // A new password login supersedes any code page still open.
+      closeTwoFactorPage();
       try {
         await igpapiClient.login(username, password);
       } catch (error) {
         if (isTwoFactorInfo(error)) {
-          return clientSupportsFormElicitation(server, ctx)
-            ? askForCode(error)
-            : manualTwoFactorResult(error);
+          return requestCode(server, ctx, error);
         }
         throw toToolError(error);
       }

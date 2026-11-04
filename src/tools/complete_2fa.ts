@@ -8,6 +8,7 @@ import * as z from "zod";
 import { igpapiClient } from "../igpapi/index.js";
 import { toToolError, waitForStartup } from "./shared/instagram.js";
 import { textResult } from "./shared/results.js";
+import { closeTwoFactorPage } from "./shared/twoFactorPage.js";
 
 export function registerCompleteTwoFactor(server: McpServer): void {
   server.registerTool(
@@ -47,6 +48,8 @@ export function registerCompleteTwoFactor(server: McpServer): void {
           `Instagram rejected the two-factor code (${toToolError(error).message}). Call instagram_login again to get a new code.`
         );
       }
+      // The login is complete; the code page (if any) is no longer needed.
+      closeTwoFactorPage();
       const user = await igpapiClient.getCurrentUser();
       return textResult(
         `Logged in to Instagram (two-factor authentication completed).\n\nAccount: @${user.username}\n` +

@@ -6,6 +6,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { igpapiClient } from "../igpapi/index.js";
 import { waitForStartup, withTimeout } from "./shared/instagram.js";
+import { closeTwoFactorPage } from "./shared/twoFactorPage.js";
 import { textResult } from "./shared/results.js";
 
 /** Upper bound for the best-effort server-side logout request. */
@@ -50,6 +51,8 @@ export function registerLogout(server: McpServer): void {
     },
     async () => {
       await waitForStartup();
+      // A code page for a pending login must not outlive the logout.
+      closeTwoFactorPage();
       const wasLoggedIn = igpapiClient.isLoggedIn();
       const username = igpapiClient.getUsername();
       const revoked = await endSession();
