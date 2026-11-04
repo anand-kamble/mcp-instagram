@@ -187,7 +187,7 @@ All configuration is through environment variables set in your MCP client's serv
 
 ### Session storage
 
-After a successful login, the server saves the Instagram session (cookies and device identifiers) to `session.json` in the session directory above, so restarts do not require logging in again. Anyone who can read that file can act as your Instagram account, so the server creates the directory with mode `0700` and the file with mode `0600`, and writes it atomically. `instagram_logout` deletes it.
+After a successful login, the server saves the Instagram session (cookies and device identifiers) to `session.json` in the session directory above, so restarts do not require logging in again. Anyone who can read that file can act as your Instagram account, so the server creates the directory with mode `0700` and the file with mode `0600`, and writes it atomically. `instagram_logout` ends the session on Instagram (when Instagram is reachable) and deletes the file.
 
 Versions up to 0.0.6 stored the session in `data/session.json` inside the package directory (under `npx`, that is the npm cache). On first start, the current version moves such a file to the new location and removes the old copy. This happens only when `IG_SESSION_DIR` is not set.
 
@@ -244,7 +244,7 @@ Every tool except login and logout needs an active session. Paginated tools retu
 `instagram_login` takes no arguments and never asks for your password; it uses `IG_USERNAME` and `IG_PASSWORD`. If Instagram asks for a verification code:
 
 - In clients that support MCP form elicitation (for example Claude Code in an interactive session), a form asks for the code and the login completes when you submit it. A malformed code is asked for again; a code Instagram rejects ends the attempt, and calling `instagram_login` again requests a new code.
-- In other clients, or if you dismiss the form, the assistant asks you for the code in the conversation and calls `instagram_complete_2fa` with it.
+- In other clients, or if you dismiss the form, the assistant asks you for the code in the conversation and calls `instagram_complete_2fa` with it. If you decline the form instead, the login stops and the assistant is told not to ask again.
 
 If a login is already waiting for a code (for example from the automatic login at startup), `instagram_login` reuses it rather than triggering another SMS.
 
