@@ -1,0 +1,48 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.anand-kamble/mcp-instagram",
+  "title": "Instagram",
+  "description": "Read Instagram profiles, posts, stories and comments, and like, comment and follow.",
+  "websiteUrl": "https://github.com/anand-kamble/mcp-instagram#readme",
+  "repository": {
+    "url": "https://github.com/anand-kamble/mcp-instagram",
+    "source": "github"
+  },
+  "version": "0.0.6",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "mcp-instagram",
+      "version": "0.0.6",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "IG_USERNAME",
+          "description": "Instagram username. Needed to log in; public profiles can be read without it.",
+          "isRequired": false
+        },
+        {
+          "name": "IG_PASSWORD",
+          "description": "Instagram password. Used only to log in; the server keeps the session cookies, not the password.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "IG_SESSION_DIR",
+          "description": "Directory for the saved session (default: ~/.config/mcp-instagram, or %APPDATA%\\mcp-instagram on Windows).",
+          "isRequired": false,
+          "format": "filepath"
+        },
+        {
+          "name": "IG_RATE_LIMITS",
+          "description": "JSON overrides for like/comment/follow limits, e.g. {\"like\":{\"perHour\":100}}.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
