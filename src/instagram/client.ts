@@ -79,6 +79,41 @@ export function toIgError(info: IgResponseInfo, rawText = ""): IgResponseError {
   return new IgResponseError(info);
 }
 
+/**
+ * JSON.parse that keeps integers beyond Number.MAX_SAFE_INTEGER exact by
+ * turning them into strings. Instagram sends 19-digit media and comment ids as
+ * JSON numbers; plain JSON.parse would round them and later requests would
+ * target the wrong object. (Node 22 lacks JSON.parse source-text access.)
+ */
+export function parseJsonPreservingBigInts(text: string): unknown {
+  let out = "";
+  let last = 0;
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "-" || (ch >= "0" && ch <= "9")) {
+      let end = i + 1;
+      while (end < text.length && /[0-9.eE+-]/.test(text[end])) end++;
+      const token = text.slice(i, end);
+      if (/^-?\d{16,}$/.test(token) && !Number.isSafeInteger(Number(token))) {
+        out += `${text.slice(last, i)}"${token}"`;
+        last = end;
+      }
+      i = end - 1;
+    }
+  }
+  return JSON.parse(last === 0 ? text : out + text.slice(last));
+}
+
 /** Parses `Bearer IGT:2:<base64 JSON>`; returns undefined for anything without a session id. */
 export function parseAuthorizationHeader(value: string | null | undefined): AuthorizationData | undefined {
   if (!value) return undefined;
@@ -345,7 +380,7 @@ export class InstagramClient {
 
     let parsed: Record<string, unknown> | undefined;
     try {
-      const value: unknown = JSON.parse(text);
+      const value: unknown = parseJsonPreservingBigInts(text);
       if (value && typeof value === "object" && !Array.isArray(value)) parsed = value as Record<string, unknown>;
     } catch {
       parsed = undefined;

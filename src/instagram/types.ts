@@ -70,6 +70,8 @@ export interface SessionState {
   rur?: string;
   /** X-IG-WWW-Claim (from x-ig-set-www-claim). */
   wwwClaim?: string;
+  /** The IG_SESSION_ID value this session was imported from, if any. */
+  importedSessionId?: string;
   /** Logged-in user. */
   userId?: string;
   username?: string;

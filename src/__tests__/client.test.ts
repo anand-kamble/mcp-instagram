@@ -207,6 +207,22 @@ describe("IGPAPIClient", () => {
       expect(authorization).toMatch(/^Bearer IGT:2:/);
     });
 
+    it("keeps a session imported from IG_SESSION_ID after Instagram rotates it", async () => {
+      setConfig({ igpapi: { sessionId: SESSION_ID } });
+      const first = managerWith(currentUser("alice"));
+      await first.manager.loginWithSessionId(SESSION_ID);
+      const saved = await loadSession();
+      expect(saved?.importedSessionId).toBe(SESSION_ID);
+      // Simulate a rotated session id in the saved file.
+      await saveSession({ ...saved!, authorization: { ds_user_id: "42", sessionid: "42%3Arotated-session-value-xxxxxxx" } });
+
+      const { manager, calls } = managerWith(currentUser("alice"));
+      await manager.initialize();
+      expect(manager.isLoggedIn()).toBe(true);
+      expect((await loadSession())?.authorization?.sessionid).toBe("42%3Arotated-session-value-xxxxxxx");
+      expect(calls).toEqual(["accounts/current_user/"]);
+    });
+
     it("uses IG_SESSION_ID when it differs from the saved session", async () => {
       await saveSession({ ...savedSession("alice"), authorization: { ds_user_id: "42", sessionid: "42%3Aold-session-value-xxxxxxxxxx" } });
       setConfig({ igpapi: { sessionId: SESSION_ID } });

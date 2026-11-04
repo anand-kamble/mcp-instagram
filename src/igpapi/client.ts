@@ -134,9 +134,14 @@ export class IGPAPIClient {
   }
 
   /** Saves the client's session and marks it logged in, unless a logout overtook the login. */
-  private async commitLogin(client: InstagramClient, epoch: number, username: string): Promise<void> {
+  private async commitLogin(
+    client: InstagramClient,
+    epoch: number,
+    username: string,
+    extra: Partial<SessionState> = {}
+  ): Promise<void> {
     this.assertCurrent(epoch);
-    await saveSession(client.serialize());
+    await saveSession({ ...client.serialize(), ...extra });
     if (epoch !== this.authEpoch) {
       // A logout ran while the file was being written.
       await deleteSession();
@@ -178,7 +183,9 @@ export class IGPAPIClient {
     this.client = client;
 
     const configuredSessionId = getConfig().igpapi?.sessionId;
-    if (configuredSessionId && saved?.authorization?.sessionid !== configuredSessionId) {
+    // Instagram may rotate the session after import, so compare with what it was imported from.
+    const savedSource = saved?.importedSessionId ?? saved?.authorization?.sessionid;
+    if (configuredSessionId && savedSource !== configuredSessionId.trim()) {
       try {
         await this.loginWithSessionId(configuredSessionId);
       } catch (error) {
@@ -274,7 +281,7 @@ export class IGPAPIClient {
         throw new Error(`IG_SESSION_ID belongs to @${username}, not IG_USERNAME (@${expected}).`);
       }
       client.setAccount(String(response.user?.pk ?? userId), username);
-      await this.commitLogin(client, epoch, username ?? userId);
+      await this.commitLogin(client, epoch, username ?? userId, { importedSessionId: trimmed });
     } catch (error) {
       if (epoch === this.authEpoch) {
         client.clearSession();

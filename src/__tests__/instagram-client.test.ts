@@ -24,6 +24,7 @@ import {
   IgUserHasLoggedOutError,
   InstagramClient,
   parseAuthorizationHeader,
+  parseJsonPreservingBigInts,
 } from "../instagram/index.js";
 import type { SessionState } from "../instagram/index.js";
 
@@ -233,6 +234,28 @@ describe("session state", () => {
 });
 
 describe("helpers", () => {
+  it("keeps integers beyond 2^53 exact by turning them into strings", () => {
+    const text =
+      '{"pk":3123456789012345678,"small":42,"neg":-9007199254740993,"f":1.5e3,' +
+      '"s":"text 12345678901234567890 \\" 98765432109876543210","arr":[18012345678901234567,7]}';
+    expect(parseJsonPreservingBigInts(text)).toEqual({
+      pk: "3123456789012345678",
+      small: 42,
+      neg: "-9007199254740993",
+      f: 1500,
+      s: 'text 12345678901234567890 " 98765432109876543210',
+      arr: ["18012345678901234567", 7],
+    });
+    expect(parseJsonPreservingBigInts('{"a":9007199254740991}')).toEqual({ a: 9007199254740991 });
+    expect(() => parseJsonPreservingBigInts("<html>")).toThrow(SyntaxError);
+  });
+
+  it("returns exact ids from responses", async () => {
+    const { impl } = fakeFetch([{ text: '{"status":"ok","comment":{"pk":18012345678901234567}}' }]);
+    const body = await new InstagramClient({ fetch: impl }).request<{ comment: { pk: unknown } }>({ path: "x/" });
+    expect(body.comment.pk).toBe("18012345678901234567");
+  });
+
   it("parses and formats IGT:2 authorization headers", () => {
     const header = formatAuthorizationHeader(AUTH);
     expect(header.startsWith("Bearer IGT:2:")).toBe(true);
