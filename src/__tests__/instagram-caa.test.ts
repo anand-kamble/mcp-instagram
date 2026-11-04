@@ -20,6 +20,7 @@ import {
   IgBadPasswordError,
   IgLoginFallbackError,
   IgLoginFlowError,
+  IgPasswordRejectedError,
   IgTwoFactorCodeError,
   InstagramClient,
   pyDumps,
@@ -280,6 +281,27 @@ describe("CaaLogin", () => {
     await expect(new CaaLogin(new InstagramClient({ transport: ig.transport }), 0).start("example", "pw")).rejects.toBeInstanceOf(
       IgLoginFallbackError
     );
+  });
+
+  it("reports Instagram's first-password-failure screen instead of a fallback", async () => {
+    const ig = fakeInstagram({
+      [SEND_LOGIN]: () => ({
+        status: 200,
+        body: {
+          status: "ok",
+          layout: {
+            bloks_payload: {
+              data: ["CAA_LOGIN_FALLBACK:fallback_triggered"],
+              action: '(bk.action.caa "com.bloks.www.caa.ar.submit_code.async" "FIRST_PASSWORD_FAILURE")',
+            },
+          },
+        },
+      }),
+    });
+    const error = await new CaaLogin(new InstagramClient({ transport: ig.transport }), 0).start("example", "pw").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(IgPasswordRejectedError);
+    expect(error).not.toBeInstanceOf(IgLoginFallbackError);
+    expect((error as Error).message).toContain("password is incorrect");
   });
 
   it("passes Instagram's typed errors through", async () => {

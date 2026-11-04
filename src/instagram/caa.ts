@@ -11,6 +11,7 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  collectStrings,
   AP_2SV_CODE_ENTRY,
   AP_2SV_CODE_ENTRY_ASYNC,
   AP_2SV_ENTRYPOINT,
@@ -45,6 +46,14 @@ export class IgLoginFlowError extends IgError {
 
 /** Instagram asked to continue with the legacy accounts/login flow, which it now rejects. */
 export class IgLoginFallbackError extends IgLoginFlowError {}
+
+/**
+ * Instagram answered the password with its "first password failure" screen:
+ * it calls the password incorrect and offers to log in with a code sent to
+ * the account's email (com.bloks.www.caa.ar.*). It may also use this screen
+ * for a login it finds suspicious. This server cannot complete that step yet.
+ */
+export class IgPasswordRejectedError extends IgLoginFlowError {}
 
 /** The verification code was not accepted (wrong or expired). */
 export class IgTwoFactorCodeError extends IgLoginFlowError {}
@@ -365,6 +374,17 @@ export class CaaLogin {
     const context = extractTwoStepVerificationContext(sendResult);
     if (context) {
       return { status: "two_factor", pending: await this.openTwoStep(context, sendResult, prepared.aac) };
+    }
+    // Checked before the fallback marker: this screen declares the marker as
+    // an inactive state, so its presence alone does not mean a fallback.
+    const strings = collectStrings(sendResult).join("\n");
+    if (strings.includes("com.bloks.www.caa.ar.submit_code.async") && strings.includes("FIRST_PASSWORD_FAILURE")) {
+      throw new IgPasswordRejectedError(
+        "Instagram says the password is incorrect and offered to log in with a code sent to the account's email " +
+          "instead, a step this server cannot complete yet. Check IG_PASSWORD by logging in on instagram.com; " +
+          "if it is right, Instagram may be treating this login as suspicious. Logging in with IG_SESSION_ID avoids this.",
+        { screen: "caa.ar first_password_failure" }
+      );
     }
     if (hints.fallback) {
       throw new IgLoginFallbackError(
