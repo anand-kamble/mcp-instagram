@@ -20,8 +20,10 @@ export const userIdInput = z
 export const usernameInput = z
   .string()
   .regex(
-    /^@?[A-Za-z0-9._]{1,30}$/,
-    "username may contain only letters, numbers, dots and underscores (max 30 characters)"
+    // The lookahead rejects names made only of dots ("." / ".."), which would
+    // act as path segments in the request URL.
+    /^@?(?!\.+$)[A-Za-z0-9._]{1,30}$/,
+    "username may contain only letters, numbers, dots and underscores (max 30 characters), and cannot be only dots"
   )
   .describe("Instagram username, with or without the leading @");
 

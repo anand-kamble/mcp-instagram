@@ -182,7 +182,18 @@ const TIMELINE_SESSION_LEVEL_SIGNALS = JSON.stringify({
   num_search_clicks_current_session: 0,
 });
 
-const seg = encodeURIComponent;
+/**
+ * Encodes one URL path segment. "." and ".." pass through encodeURIComponent
+ * unchanged and URL normalisation would resolve them into a different
+ * endpoint (users/../usernameinfo/ becomes usernameinfo/), and an empty
+ * segment collapses the path, so all three are refused before any request.
+ */
+function seg(value: string): string {
+  if (value === "" || value === "." || value === "..") {
+    throw new Error(`Invalid Instagram identifier ${JSON.stringify(value)} in request path.`);
+  }
+  return encodeURIComponent(value);
+}
 
 /** Pagination cursors may arrive as strings or numbers; empty or missing ones are dropped. */
 function cursorOf(value: unknown): string | undefined {

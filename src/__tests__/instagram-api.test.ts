@@ -406,3 +406,25 @@ describe("write endpoints", () => {
     expect(signedForm(call())).toEqual({ one_tap_app_login: true });
   });
 });
+
+describe("path segments", () => {
+  it.each([
+    ["usernameInfo", ".."],
+    ["usernameInfo", "@."],
+    ["usernameInfo", " "],
+    ["userInfo", "."],
+    ["userFeed", ".."],
+    ["mediaInfo", ".."],
+  ])("%s refuses %j before sending anything", async (method, value) => {
+    const { api, calls } = setup();
+    const call = (api as unknown as Record<string, (arg: string) => Promise<unknown>>)[method].bind(api);
+    await expect(call(value)).rejects.toThrow(/Invalid Instagram identifier/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("encodes other identifiers as a single segment", async () => {
+    const { api, calls } = setup({ status: "ok", user: { pk: 1 } });
+    await api.usernameInfo("a.b_c");
+    expect(calls[0].url.pathname).toBe("/api/v1/users/a.b_c/usernameinfo/");
+  });
+});

@@ -63,6 +63,9 @@ describe("input validation", () => {
     ["instagram_get_user_posts", { username: "bad name!" }],
     ["instagram_get_user_posts", { username: "nasa", limit: 0 }],
     ["instagram_get_user_posts", { username: "nasa", limit: 51 }],
+    ["instagram_get_user_profile", { username: ".." }],
+    ["instagram_get_user_profile", { username: "@." }],
+    ["instagram_get_user_stories", { username: "..." }],
   ])("%s rejects %j as a tool error without contacting Instagram", async (name, args) => {
     const { requests } = stubInstagram();
     const result = await call(connection, name, args);
