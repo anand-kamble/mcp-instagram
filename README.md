@@ -247,10 +247,10 @@ Every tool except login and logout needs an active session. Paginated tools retu
 
 `instagram_login` takes no arguments and never asks for your password; it uses `IG_USERNAME` and `IG_PASSWORD`. If Instagram asks for a verification code:
 
-- In clients that support MCP form elicitation (for example Claude Code in an interactive session), a form asks for the code and the login completes when you submit it. A malformed code is asked for again; a code Instagram rejects ends the attempt, and calling `instagram_login` again requests a new code.
-- In other clients, or if you dismiss the form, the assistant asks you for the code in the conversation and calls `instagram_complete_2fa` with it. If you decline the form instead, the login stops and the assistant is told not to ask again.
+- The server opens a one-time page on your own machine (`http://127.0.0.1:<port>/2fa/...`) where you type the code, so it never passes through the MCP client or the assistant. Clients that support MCP URL elicitation (for example Claude Code in an interactive session) offer to open it in your browser; in other clients the assistant gives you the link. The page accepts one code, expires after 10 minutes, and closes when you log out or start a new login. A malformed code can be corrected on the page; a code Instagram rejects ends the attempt, and calling `instagram_login` again starts a new one.
+- If you cannot open the page, tell the assistant the code and it calls `instagram_complete_2fa` with it (the code then passes through the conversation). If you decline the prompt to open the page, the login stops and the assistant is told not to ask again.
 
-If a login is already waiting for a code (for example from the automatic login at startup), `instagram_login` reuses it rather than triggering another SMS.
+If a login is already waiting for a code (for example from the automatic login at startup), `instagram_login` reuses it rather than triggering another code.
 
 ## ⚠️ Legal Disclaimer and Risks
 
