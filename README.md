@@ -208,36 +208,45 @@ Instagram does not publish its limits, so these defaults are deliberately conser
 - **Never commit your credentials** to version control. Prefer the Claude Code `${VAR}` or VS Code `inputs` setups above over plain-text passwords in config files.
 - Credentials are never requested from the LLM. They come only from environment variables.
 - The saved session is a credential too; see [Session storage](#session-storage).
-- If your account has two-factor authentication enabled, logging in returns a 2FA prompt; complete it with the `instagram_complete_2fa` tool and the code from your authenticator app or SMS.
+- Two-factor codes are the only thing the server ever asks you for; see [Two-factor authentication](#two-factor-authentication).
+- Text in tool results (captions, comments, bios, usernames) is written by other Instagram users. The server tells the assistant to treat it as data, not instructions, but review write actions the assistant proposes.
 
 ### Verifying Installation
 
-After restarting your MCP client, you should see the Instagram MCP server in the list of available servers. You can verify it's working by asking the AI assistant to use Instagram tools like:
+After restarting your MCP client, the Instagram server should appear in its list of servers. Ask the assistant to log in, then try something like "show me the latest posts from @nasa".
 
-**Authentication:**
-- `instagram_login` - Login to Instagram account
-- `instagram_complete_2fa` - Complete two-factor authentication
-- `instagram_logout` - Logout from Instagram
+## Tools
 
-**Profile & Content Viewing:**
-- `instagram_search_accounts` - Search for Instagram accounts
-- `instagram_get_user_profile` - Get user profile information by ID or username
-- `instagram_get_current_user_profile` - Get authenticated user's own profile
-- `instagram_get_user_posts` - Get paginated feed of a user's posts
-- `instagram_get_post_details` - Get detailed information about a specific post
-- `instagram_get_user_stories` - Get active stories from a user
-- `instagram_get_timeline_feed` - Get home feed (posts from accounts you follow)
+Read-only tools return structured JSON (`structuredContent`, described by each tool's `outputSchema`) as well as a text copy. Write tools are marked non-read-only, and every tool declares MCP annotations so clients can decide which calls need confirmation.
 
-**Engagement Actions:**
-- `instagram_like_post` - Like a post or reel
-- `instagram_like_comment` - Like a comment
-- `instagram_comment_on_post` - Add a comment to a post or reply to a comment
-- `instagram_get_post_comments` - Get comments for a post
+| Tool | Title | Kind |
+|---|---|---|
+| `instagram_login` | Log in to Instagram | write, idempotent |
+| `instagram_complete_2fa` | Complete two-factor login | write |
+| `instagram_logout` | Log out of Instagram | write, destructive, idempotent |
+| `instagram_search_accounts` | Search accounts | read-only |
+| `instagram_get_user_profile` | Get user profile | read-only |
+| `instagram_get_current_user_profile` | Get current user profile | read-only |
+| `instagram_get_user_posts` | Get user posts | read-only, paginated |
+| `instagram_get_post_details` | Get post details | read-only |
+| `instagram_get_post_comments` | Get post comments | read-only, paginated |
+| `instagram_get_user_stories` | Get user stories | read-only |
+| `instagram_get_timeline_feed` | Get home timeline | read-only, paginated |
+| `instagram_like_post` | Like a post | write, idempotent, rate limited |
+| `instagram_like_comment` | Like a comment | write, idempotent, rate limited |
+| `instagram_comment_on_post` | Comment on a post | write, rate limited |
+| `instagram_follow_user` | Follow a user | write, idempotent, rate limited |
 
-**Social Actions:**
-- `instagram_follow_user` - Follow an Instagram user
----
+Every tool except login and logout needs an active session. Paginated tools return `nextMaxId` when more items exist; pass it back as `maxId` to get the next page. Instagram decides the page size; `limit` only caps how many items of the current page are returned.
 
+### Two-factor authentication
+
+`instagram_login` takes no arguments and never asks for your password; it uses `IG_USERNAME` and `IG_PASSWORD`. If Instagram asks for a verification code:
+
+- In clients that support MCP form elicitation (for example Claude Code in an interactive session), a form asks for the code and the login completes when you submit it. A malformed code is asked for again; a code Instagram rejects ends the attempt, and calling `instagram_login` again requests a new code.
+- In other clients, or if you dismiss the form, the assistant asks you for the code in the conversation and calls `instagram_complete_2fa` with it.
+
+If a login is already waiting for a code (for example from the automatic login at startup), `instagram_login` reuses it rather than triggering another SMS.
 
 ## ⚠️ Legal Disclaimer and Risks
 
@@ -249,7 +258,7 @@ This software utilizes unofficial Instagram API access methods and is not affili
 
 1. **Account Restrictions:** Use of this software may result in your Instagram account being flagged for suspicious or automated activity. Instagram may issue warnings, temporarily restrict account functionality, or permanently suspend or delete your account.
 
-2. **No Guarantees:** The functionality of this software is not guaranteed and may cease to work at any time due to changes in Instagram's platform, security measures, or policies.
+2. **No Guarantees:** The functionality of this software is not guaranteed and may cease to work at any time due to changes in Instagram's platform, security measures, or policies. It is built on [instagram-private-api](https://github.com/dilame/instagram-private-api), whose last release (1.46.1) was published in March 2024; there is no maintained Node.js replacement, so Instagram-side changes may break tools without a fix being available.
 
 ### Limitation of Liability
 
