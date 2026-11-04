@@ -22,6 +22,8 @@ import { igpapiClient } from "../../igpapi/index.js";
 export const STARTUP_WAIT_MS = 35_000;
 
 let startup: Promise<unknown> | undefined;
+/** The startup work while it is still running, even after tools stopped waiting for it. */
+let unsettledStartup: Promise<unknown> | undefined;
 
 /**
  * Settles with the promise's value, or `{ done: false }` after `ms`.
@@ -50,7 +52,21 @@ export async function withTimeout<T>(
  */
 export function setStartupPromise(promise: Promise<unknown>): void {
   // Never let a failed startup reject every later tool call.
-  startup = promise.catch(() => undefined);
+  const settled = promise.catch(() => undefined);
+  startup = settled;
+  unsettledStartup = settled;
+  void settled.then(() => {
+    if (unsettledStartup === settled) unsettledStartup = undefined;
+  });
+}
+
+/**
+ * The startup work if it has not finished yet, otherwise undefined. Unlike
+ * waitForStartup this ignores the wait limit: logout uses it to undo a
+ * login that completes in the background after the user logged out.
+ */
+export function pendingStartup(): Promise<unknown> | undefined {
+  return unsettledStartup;
 }
 
 /**
