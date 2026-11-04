@@ -88,8 +88,18 @@ function networkInfo(): Json {
 
 const looksLikeBackupCode = (code: string): boolean => /^\d{8}$/.test(code.trim().replace(/[\s-]+/g, ""));
 
+/** Removes bearer tokens and session ids from captured text. */
+export function redactSecrets(text: string): string {
+  return text
+    .replace(/(IGT:2:)[A-Za-z0-9+/=_-]{8,}/g, "$1<redacted>")
+    .replace(/(sessionid(?:%3D|=|\\?":\\?"))[^;"\\\s]+/gi, "$1<redacted>")
+    .replace(/(#PWD_INSTAGRAM:\d:\d+:)[A-Za-z0-9+/=]+/g, "$1<redacted>");
+}
+
 export class CaaLogin {
   private passwordSubmitted = false;
+  /** Recent login-flow responses (redacted), for diagnosing screens the flow does not handle. */
+  readonly trace: Array<{ path: string; body: string }> = [];
 
   /**
    * @param paceMs instagrapi waits 1 s before requests not flagged as login
@@ -102,9 +112,12 @@ export class CaaLogin {
     private readonly isCurrent: () => boolean = () => true
   ) {}
 
-  private request<T>(req: Parameters<InstagramClient["request"]>[0]): Promise<T> {
+  private async request<T>(req: Parameters<InstagramClient["request"]>[0]): Promise<T> {
     if (!this.isCurrent()) throw new IgLoginCancelledError();
-    return this.client.request<T>(req);
+    const result = await this.client.request<T>(req);
+    this.trace.push({ path: req.path, body: redactSecrets(JSON.stringify(result)) });
+    if (this.trace.length > 12) this.trace.shift();
+    return result;
   }
 
   private async pace(): Promise<void> {

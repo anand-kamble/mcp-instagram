@@ -210,6 +210,7 @@ All configuration is through environment variables set in your MCP client's serv
 | `IG_PASSWORD` | For password login | Instagram password. Sent once, encrypted, at login; never written to disk. Like any environment variable it stays in the server process's memory. |
 | `IG_SESSION_ID` | Instead of a password | The `sessionid` cookie of a logged-in instagram.com browser session; see [Logging in](#logging-in). |
 | `IG_SESSION_DIR` | No | Directory for the saved session. Default: `$XDG_CONFIG_HOME/mcp-instagram`, else `~/.config/mcp-instagram` (macOS and Linux), or `%APPDATA%\mcp-instagram` (Windows). Must be owned by you and not writable by other users; the server refuses shared directories such as `/tmp`. |
+| `IG_DEBUG_CAPTURE` | No | Diagnostics: a directory where a password login that hits an Instagram screen the server cannot handle saves Instagram's responses (tokens and session ids removed, file mode 0600). Off by default; the files can still contain account details, so delete them after sharing. |
 | `IG_RATE_LIMITS` | No | JSON overrides for the write-action limits, for example `{"like":{"perHour":100}}`. See [Rate limits](#rate-limits). |
 
 ### Session storage

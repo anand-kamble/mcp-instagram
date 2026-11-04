@@ -391,6 +391,47 @@ describe("IGPAPIClient password login", () => {
     expect(m.isLoggedIn()).toBe(true);
   });
 
+  it("captures redacted login-flow responses for unknown screens when IG_DEBUG_CAPTURE is set", async () => {
+    const captureDir = join(dir, "capture");
+    process.env.IG_DEBUG_CAPTURE = captureDir;
+    const original = console.error;
+    console.error = () => undefined;
+    try {
+      const ig = fakeInstagram({
+        [SEND_LOGIN]: () => ({
+          status: 200,
+          body: {
+            status: "ok",
+            layout: { bloks_payload: { data: ["CAA_LOGIN_FALLBACK:fallback_triggered"], action: `t ${formatAuthorizationHeader(AUTH)} sessionid=123%3Asecret "sessionid":"123%3Asecret2"` } },
+          },
+        }),
+      });
+      await expect(manager(ig).login("example", "pw-not-in-capture")).rejects.toBeInstanceOf(IgLoginFallbackError);
+    } finally {
+      console.error = original;
+      delete process.env.IG_DEBUG_CAPTURE;
+    }
+    const files = await fs.readdir(captureDir);
+    expect(files).toHaveLength(1);
+    const file = join(captureDir, files[0]);
+    expect((await fs.stat(file)).mode & 0o777).toBe(0o600);
+    const text = await fs.readFile(file, "utf8");
+    const capture = JSON.parse(text);
+    expect(capture.error).toContain("IgLoginFallbackError");
+    expect(capture.responses.map((r: { path: string }) => r.path)).toContain(`bloks/async_action/${SEND_LOGIN}/`);
+    expect(text).not.toContain("secret");
+    expect(text).not.toContain(formatAuthorizationHeader(AUTH).slice(13));
+    expect(text).not.toContain("pw-not-in-capture");
+  });
+
+  it("writes nothing without IG_DEBUG_CAPTURE", async () => {
+    const ig = fakeInstagram({
+      [SEND_LOGIN]: () => ({ status: 200, body: { status: "ok", layout: { bloks_payload: { data: ["CAA_LOGIN_FALLBACK:x"] } } } }),
+    });
+    await expect(manager(ig).login("example", "pw")).rejects.toBeInstanceOf(IgLoginFallbackError);
+    expect((await fs.readdir(dir)).filter((name) => name.startsWith("caa-") || name === "capture")).toEqual([]);
+  });
+
   it("drops a pending login on logout", async () => {
     const ig = fakeInstagram({
       [SEND_LOGIN]: () => ({ status: 200, body: navigate("com.bloks.www.two_step_verification.entrypoint", "two_step_verification_context", "ctx") }),
