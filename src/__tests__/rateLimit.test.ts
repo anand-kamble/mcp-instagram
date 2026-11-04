@@ -126,6 +126,17 @@ describe("RateLimiter", () => {
     expect(() => limiter.consume("unfollow")).toThrow(RateLimitError);
   });
 
+  it("limits password logins to one per minute by default", () => {
+    const { limiter, advance } = limiterAt(0);
+    limiter.consume("login");
+    const error = catchError(() => limiter.consume("login")) as RateLimitError;
+    expect(error).toBeInstanceOf(RateLimitError);
+    expect(error.message).toContain("password login");
+    expect(error.message).toContain("checkpoint");
+    advance(60_000);
+    expect(() => limiter.consume("login")).not.toThrow();
+  });
+
   it("keeps buckets independent", () => {
     const { limiter } = limiterAt(0);
     for (let i = 0; i < DEFAULT_RATE_LIMITS.comment.perMinute; i++) limiter.consume("comment");
@@ -161,6 +172,8 @@ describe("parseRateLimits", () => {
     ['{"like":{"perHour":0}}', /positive integer/],
     ['{"like":{"perHour":1.5}}', /positive integer/],
     ['{"like":{"perHour":"10"}}', /positive integer/],
+    ['{"__proto__":{"perMinute":7}}', /unknown action "__proto__"/],
+    ['{"constructor":{"perMinute":7}}', /unknown action "constructor"/],
   ])("rejects %s", (input, message) => {
     expect(() => parseRateLimits(input)).toThrow(message);
   });

@@ -47,14 +47,36 @@ export function getSessionFilePath(): string {
 /**
  * Where versions <= 0.0.6 wrote the session: `data/session.json` under the
  * working directory, which `bin/insta-mcp.js` set to the package root.
+ *
+ * Only the package root is checked. The current working directory is the MCP
+ * client's project directory, so a repository could otherwise plant a
+ * session for an account it controls.
  */
 function getLegacySessionPaths(): string[] {
-  const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
-  const candidates = [
-    join(process.cwd(), "data", SESSION_FILE_NAME),
-    join(packageRoot, "data", SESSION_FILE_NAME),
-  ];
-  return [...new Set(candidates)];
+  return [join(fileURLToPath(new URL("../../", import.meta.url)), "data", SESSION_FILE_NAME)];
+}
+
+/** Upper bound for a session file; real ones are a few kilobytes. */
+const MAX_SESSION_BYTES = 1024 * 1024;
+
+/**
+ * Refuse a session directory that other local users could write to (for
+ * example IG_SESSION_DIR=/tmp): they could plant a session or swap files.
+ */
+async function assertPrivateDirectory(dir: string): Promise<void> {
+  if (process.platform === "win32") {
+    return;
+  }
+  const stats = await fs.lstat(dir);
+  if (!stats.isDirectory()) {
+    throw new Error(`${dir} is not a directory`);
+  }
+  if (typeof process.getuid === "function" && stats.uid !== process.getuid()) {
+    throw new Error(`${dir} is owned by another user`);
+  }
+  if (stats.mode & 0o022) {
+    throw new Error(`${dir} is writable by other users; use a private directory for IG_SESSION_DIR`);
+  }
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -73,13 +95,15 @@ async function ensureSessionDir(dir: string): Promise<void> {
   if (!process.env.IG_SESSION_DIR && process.platform !== "win32") {
     await fs.chmod(dir, DIR_MODE);
   }
+  await assertPrivateDirectory(dir);
 }
 
 /** Write `data` to `file` with mode 0600 via a temp file and rename, so readers never see a partial file. */
 async function writePrivateFileAtomic(file: string, data: string): Promise<void> {
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   try {
-    await fs.writeFile(tmp, data, { encoding: "utf-8", mode: FILE_MODE });
+    // "wx" fails if the name exists, so a pre-planted file or symlink is never written through.
+    await fs.writeFile(tmp, data, { encoding: "utf-8", mode: FILE_MODE, flag: "wx" });
     await fs.rename(tmp, file);
   } catch (error) {
     await fs.rm(tmp, { force: true });
@@ -118,10 +142,15 @@ export async function migrateLegacySession(
     return;
   }
   for (const legacy of candidates) {
-    if (legacy === target || !(await fileExists(legacy))) {
+    if (legacy === target) {
       continue;
     }
     try {
+      // Regular files only: no symlinks, FIFOs or devices.
+      const stats = await fs.lstat(legacy).catch(() => null);
+      if (!stats || !stats.isFile() || stats.size > MAX_SESSION_BYTES) {
+        continue;
+      }
       const data = await fs.readFile(legacy, "utf-8");
       if (!looksLikeIgSession(data)) {
         continue;
@@ -162,8 +191,22 @@ export async function saveSession(ig: IgApiClient): Promise<void> {
 export async function loadSession(ig: IgApiClient): Promise<boolean> {
   await migrateLegacySession();
   const file = getSessionFilePath();
+  try {
+    await assertPrivateDirectory(dirname(file));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.error(
+        `[mcp-instagram] Not loading the saved session: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    return false;
+  }
   let raw: string;
   try {
+    const stats = await fs.lstat(file);
+    if (!stats.isFile() || stats.size > MAX_SESSION_BYTES) {
+      return false;
+    }
     raw = await fs.readFile(file, "utf-8");
   } catch {
     return false;

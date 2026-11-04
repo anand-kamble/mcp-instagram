@@ -1,9 +1,11 @@
 /**
- * Server-side rate limiting for write actions (like, comment, follow).
+ * Server-side rate limiting for write actions (like, comment, follow) and
+ * password logins.
  *
  * The MCP tools spec requires servers to rate limit tool invocations, and
  * Instagram action-blocks accounts that like, comment or follow in fast
- * bursts. Without a limit, an agent loop can get the account blocked.
+ * bursts, and checkpoints accounts that log in with a password repeatedly.
+ * Without a limit, an agent loop can get the account blocked.
  *
  * Limits are per server process and kept in memory, so they reset on restart.
  * Instagram does not publish its limits; the defaults below are deliberately
@@ -13,10 +15,10 @@
  *   IG_RATE_LIMITS='{"like":{"perHour":100},"follow":{"perDay":50}}'
  */
 
-export type RateLimitedAction = "like" | "unlike" | "comment" | "follow" | "unfollow";
+export type RateLimitedAction = "like" | "unlike" | "comment" | "follow" | "unfollow" | "login";
 
 /** Actions that undo each other share one budget: unliking still counts as activity. */
-export type RateLimitBucket = "like" | "comment" | "follow";
+export type RateLimitBucket = "like" | "comment" | "follow" | "login";
 
 export interface BucketLimits {
   perMinute: number;
@@ -30,6 +32,7 @@ export const DEFAULT_RATE_LIMITS: Readonly<RateLimits> = Object.freeze({
   like: Object.freeze({ perMinute: 10, perHour: 60, perDay: 500 }),
   comment: Object.freeze({ perMinute: 3, perHour: 20, perDay: 100 }),
   follow: Object.freeze({ perMinute: 5, perHour: 30, perDay: 150 }),
+  login: Object.freeze({ perMinute: 1, perHour: 5, perDay: 10 }),
 });
 
 const ACTION_BUCKET: Record<RateLimitedAction, RateLimitBucket> = {
@@ -38,12 +41,21 @@ const ACTION_BUCKET: Record<RateLimitedAction, RateLimitBucket> = {
   comment: "comment",
   follow: "follow",
   unfollow: "follow",
+  login: "login",
 };
 
 const BUCKET_LABEL: Record<RateLimitBucket, string> = {
   like: "like/unlike",
   comment: "comment",
   follow: "follow/unfollow",
+  login: "password login",
+};
+
+const BUCKET_REASON: Record<RateLimitBucket, string> = {
+  like: "This server limits likes, comments and follows so the Instagram account is not action-blocked.",
+  comment: "This server limits likes, comments and follows so the Instagram account is not action-blocked.",
+  follow: "This server limits likes, comments and follows so the Instagram account is not action-blocked.",
+  login: "Repeated password logins make Instagram lock the account behind a security checkpoint.",
 };
 
 const MINUTE_MS = 60_000;
@@ -127,7 +139,7 @@ export class RateLimiter {
       throw new RateLimitError(
         `Rate limit reached: at most ${blocking.max} ${BUCKET_LABEL[bucket]} actions per ${blocking.label}. ` +
           `Try again in ${formatDuration(retryAfterMs)}. ` +
-          "This server limits likes, comments and follows so the Instagram account is not action-blocked.",
+          BUCKET_REASON[bucket],
         action,
         retryAfterMs
       );
@@ -146,6 +158,7 @@ export function parseRateLimits(json: string | undefined): RateLimits {
     like: { ...DEFAULT_RATE_LIMITS.like },
     comment: { ...DEFAULT_RATE_LIMITS.comment },
     follow: { ...DEFAULT_RATE_LIMITS.follow },
+    login: { ...DEFAULT_RATE_LIMITS.login },
   };
   if (json === undefined || json.trim() === "") {
     return limits;
@@ -156,8 +169,8 @@ export function parseRateLimits(json: string | undefined): RateLimits {
     throw new Error("IG_RATE_LIMITS must be a JSON object");
   }
   for (const [bucket, overrides] of Object.entries(parsed)) {
-    if (!(bucket in limits)) {
-      throw new Error(`IG_RATE_LIMITS: unknown action "${bucket}" (expected like, comment or follow)`);
+    if (!Object.hasOwn(limits, bucket)) {
+      throw new Error(`IG_RATE_LIMITS: unknown action "${bucket}" (expected like, comment, follow or login)`);
     }
     if (typeof overrides !== "object" || overrides === null || Array.isArray(overrides)) {
       throw new Error(`IG_RATE_LIMITS.${bucket} must be an object`);

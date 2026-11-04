@@ -126,6 +126,23 @@ describe("session persistence", () => {
       expect(await loadSession(fakeClient().ig)).toBe(false);
     });
 
+    (isWindows ? it.skip : it)("refuses an IG_SESSION_DIR that other users can write to", async () => {
+      const shared = join(root, "shared");
+      await fs.mkdir(shared);
+      await fs.chmod(shared, 0o777);
+      process.env.IG_SESSION_DIR = shared;
+      await fs.writeFile(join(shared, "session.json"), JSON.stringify(SAMPLE_STATE));
+
+      const original = console.error;
+      console.error = () => undefined;
+      try {
+        expect(await loadSession(fakeClient().ig)).toBe(false);
+      } finally {
+        console.error = original;
+      }
+      await expect(saveSession(fakeClient().ig)).rejects.toThrow(/writable by other users/);
+    });
+
     it("does not migrate legacy files into an explicit IG_SESSION_DIR", async () => {
       const workdir = join(root, "work");
       await fs.mkdir(join(workdir, "data"), { recursive: true });
@@ -183,6 +200,26 @@ describe("session persistence", () => {
       await migrateLegacySession([foreign]);
       await expect(fs.access(foreign)).resolves.toBeUndefined();
       expect(await sessionExists()).toBe(false);
+    });
+
+    it("never migrates a session file from the working directory", async () => {
+      const planted = join(workdir, "data", "session.json");
+      await fs.writeFile(planted, JSON.stringify(SAMPLE_STATE));
+
+      await migrateLegacySession();
+      await expect(fs.access(planted)).resolves.toBeUndefined();
+      expect(await sessionExists()).toBe(false);
+    });
+
+    (isWindows ? it.skip : it)("skips a legacy path that is a symlink", async () => {
+      const real = join(root, "elsewhere.json");
+      await fs.writeFile(real, JSON.stringify(SAMPLE_STATE));
+      const link = join(workdir, "data", "session.json");
+      await fs.symlink(real, link);
+
+      await migrateLegacySession([link]);
+      expect(await sessionExists()).toBe(false);
+      await expect(fs.access(real)).resolves.toBeUndefined();
     });
 
     it("prefers an existing session over a legacy one", async () => {
