@@ -37,7 +37,8 @@ export function createDeviceProfile(options: { locale?: string; timezoneOffset?:
     phoneId: randomUUID(),
     androidId: `android-${createHash("sha256").update(randomBytes(16)).digest("hex").slice(0, 16)}`,
     adid: randomUUID(),
-    timezoneOffset: options.timezoneOffset ?? -new Date().getTimezoneOffset() * 60,
+    // `|| 0` turns UTC's -0 into 0, which survives a JSON round trip unchanged.
+    timezoneOffset: options.timezoneOffset ?? (-new Date().getTimezoneOffset() * 60 || 0),
   };
 }
 
