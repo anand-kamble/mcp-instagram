@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { igpapiClient } from "../igpapi/index.js";
-import { pendingStartup, waitForStartup, withTimeout } from "./shared/instagram.js";
+import { waitForStartup, withTimeout } from "./shared/instagram.js";
 import { textResult } from "./shared/results.js";
 
 /** Upper bound for the best-effort server-side logout request. */
@@ -53,14 +53,6 @@ export function registerLogout(server: McpServer): void {
       const wasLoggedIn = igpapiClient.isLoggedIn();
       const username = igpapiClient.getUsername();
       const revoked = await endSession();
-
-      // If startup restore/auto-login is still running (tools stop waiting for
-      // it after a while), it could finish after this logout and save a fresh
-      // session. Undo that when it settles.
-      const startup = pendingStartup();
-      if (startup) {
-        void startup.then(() => endSession()).catch(() => undefined);
-      }
 
       if (!wasLoggedIn) {
         return textResult(

@@ -4,13 +4,7 @@
 
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import { igpapiClient } from "../igpapi/index.js";
-import {
-  STARTUP_WAIT_MS,
-  pendingStartup,
-  setStartupPromise,
-  waitForStartup,
-  withTimeout,
-} from "../tools/shared/instagram.js";
+import { STARTUP_WAIT_MS, setStartupPromise, waitForStartup, withTimeout } from "../tools/shared/instagram.js";
 import { call, connect } from "./helpers.js";
 
 afterEach(() => {
@@ -52,8 +46,11 @@ describe("waitForStartup", () => {
 });
 
 describe("logout during a stalled startup", () => {
-  it("undoes a background login that finishes after the logout", async () => {
-    let loggedIn = false;
+  // Discarding the stale startup login itself is IGPAPIClient's job (auth
+  // epoch, see client.test.ts). This checks the tool layer adds nothing that
+  // acts later: a login made after the logout survives the startup settling.
+  it("leaves a login made after the logout alone when the stalled startup settles", async () => {
+    let loggedIn = true;
     jest.spyOn(igpapiClient, "isLoggedIn").mockImplementation(() => loggedIn);
     jest.spyOn(igpapiClient, "getUsername").mockReturnValue(null);
     jest.spyOn(igpapiClient, "getClient").mockReturnValue({ account: { logout: async () => ({}) } } as never);
@@ -62,8 +59,8 @@ describe("logout during a stalled startup", () => {
     });
 
     let finishStartup: () => void = () => undefined;
-    setStartupPromise(new Promise<void>((resolve) => (finishStartup = resolve)));
-    // Simulate tools having given up waiting on the stalled startup.
+    const stalled = new Promise<void>((resolve) => (finishStartup = resolve));
+    setStartupPromise(stalled);
     jest.spyOn(console, "error").mockImplementation(() => undefined);
     jest.useFakeTimers();
     const waited = waitForStartup();
@@ -76,15 +73,14 @@ describe("logout during a stalled startup", () => {
       await call(connection, "instagram_logout");
       expect(logout).toHaveBeenCalledTimes(1);
 
-      // The background auto-login now completes and logs the account back in.
+      // The user logs in again, then the stalled startup finally settles.
       loggedIn = true;
       finishStartup();
-      await pendingStartup()?.catch(() => undefined);
+      await stalled;
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(logout).toHaveBeenCalledTimes(2);
-      expect(loggedIn).toBe(false);
-      expect(pendingStartup()).toBeUndefined();
+      expect(logout).toHaveBeenCalledTimes(1);
+      expect(loggedIn).toBe(true);
     } finally {
       await connection.close();
     }
