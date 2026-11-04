@@ -5,6 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { mediaIdInput } from "./shared/schemas.js";
+import { consumeRateLimit } from "../utils/index.js";
 import { getLoggedInClient, toToolError } from "./shared/instagram.js";
 import { textResult } from "./shared/results.js";
 
@@ -32,6 +33,7 @@ export function registerLikePost(server: McpServer): void {
     },
     async ({ mediaId, module }) => {
       const client = await getLoggedInClient();
+      consumeRateLimit("like");
       try {
         await client.media.like({ mediaId, moduleInfo: { module_name: module }, d: 1 });
       } catch (error) {

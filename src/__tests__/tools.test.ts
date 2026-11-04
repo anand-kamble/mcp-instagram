@@ -4,6 +4,7 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, jest } from "@jest/globals";
 import { IgActionSpamError, IgLoginRequiredError, IgNotFoundError, IgResponseError } from "instagram-private-api";
+import { resetRateLimiter } from "../utils/rateLimit.js";
 import { call, connect, fakeFeed, fakeResponse, stubInstagram, textOf } from "./helpers.js";
 import type { Connection } from "./helpers.js";
 
@@ -376,5 +377,41 @@ describe("post, comment, story and timeline tools", () => {
     expect(data.posts[0].sponsored).toBeUndefined();
     expect(data.posts[1].sponsored).toBe(true);
     expect(data.nextMaxId).toBe("t-2");
+  });
+});
+
+describe("rate limiting", () => {
+  afterEach(() => {
+    delete process.env.IG_RATE_LIMITS;
+    resetRateLimiter();
+  });
+
+  it("refuses a write over the limit without contacting Instagram", async () => {
+    process.env.IG_RATE_LIMITS = JSON.stringify({ comment: { perMinute: 1 } });
+    resetRateLimiter();
+    const comment = jest.fn(async () => ({ pk: "1" }));
+    stubInstagram({ media: { comment } });
+
+    const first = await call(connection, "instagram_comment_on_post", { mediaId: "1_7", text: "one" });
+    const second = await call(connection, "instagram_comment_on_post", { mediaId: "1_7", text: "two" });
+
+    expect(first.isError).toBeFalsy();
+    expect(second.isError).toBe(true);
+    expect(textOf(second)).toMatch(/Rate limit reached.*Try again in/s);
+    expect(comment).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not count calls rejected for a missing session", async () => {
+    process.env.IG_RATE_LIMITS = JSON.stringify({ follow: { perMinute: 1 } });
+    resetRateLimiter();
+    stubInstagram({}, { loggedIn: false });
+    await call(connection, "instagram_follow_user", { userId: "7" });
+    jest.restoreAllMocks();
+
+    const create = jest.fn(async () => ({ following: true, outgoing_request: false }));
+    stubInstagram({ friendship: { create } });
+    const result = await call(connection, "instagram_follow_user", { userId: "7" });
+    expect(result.isError).toBeFalsy();
+    expect(create).toHaveBeenCalledTimes(1);
   });
 });
