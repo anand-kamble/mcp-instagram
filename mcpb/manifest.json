@@ -4,7 +4,7 @@
   "display_name": "Instagram",
   "version": "0.0.0",
   "description": "Read Instagram profiles, posts, stories and comments, and like, comment and follow.",
-  "long_description": "Unofficial Instagram integration built on instagram-private-api. Instagram may flag or restrict accounts used through unofficial APIs, so prefer a secondary account. Write actions (likes, comments, follows) are rate limited by the server. You log in with the session cookie of a logged-in instagram.com browser session (no password needed); the session is saved privately in ~/.config/mcp-instagram (or %APPDATA%\\mcp-instagram on Windows).",
+  "long_description": "Unofficial Instagram integration built on instagram-private-api. Instagram may flag or restrict accounts used through unofficial APIs, so prefer a secondary account. Write actions (likes, comments, follows) are rate limited by the server. You log in with your username and password (two-factor codes are requested when needed) or with the session cookie of a logged-in browser; the session is saved privately in ~/.config/mcp-instagram (or %APPDATA%\\mcp-instagram on Windows).",
   "author": {
     "name": "Anand Kamble",
     "email": "amkamble@icloud.com",
@@ -41,23 +41,23 @@
     }
   },
   "user_config": {
-    "ig_session_id": {
-      "type": "string",
-      "title": "Instagram session ID",
-      "description": "The value of the `sessionid` cookie from instagram.com in a browser where you are logged in. Treat it like a password.",
-      "sensitive": true,
-      "required": true
-    },
     "ig_username": {
       "type": "string",
       "title": "Instagram username",
-      "description": "Optional. If set, a session for a different account is refused.",
+      "description": "Your Instagram username, for password login.",
       "required": false
     },
     "ig_password": {
       "type": "string",
       "title": "Instagram password",
-      "description": "Optional; password login is currently unavailable because Instagram changed its login flow. Never written to disk.",
+      "description": "Used once, encrypted, to log in; never written to disk. If Instagram asks for a two-factor code, you will be asked for it in the conversation.",
+      "sensitive": true,
+      "required": false
+    },
+    "ig_session_id": {
+      "type": "string",
+      "title": "Instagram session ID (alternative to a password)",
+      "description": "Optional: the `sessionid` cookie from instagram.com in a browser where you are logged in. Treat it like a password.",
       "sensitive": true,
       "required": false
     }

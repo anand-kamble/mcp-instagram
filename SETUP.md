@@ -32,7 +32,8 @@ Add the following configuration to your `mcpServers` object:
         "/absolute/path/to/mcp-instagram"
       ],
       "env": {
-        "IG_SESSION_ID": "your_sessionid_cookie"
+        "IG_USERNAME": "your_instagram_username",
+        "IG_PASSWORD": "your_instagram_password"
       }
     }
   }
@@ -49,7 +50,8 @@ Add the following configuration to your `mcpServers` object:
         "/absolute/path/to/mcp-instagram/build/server.js"
       ],
       "env": {
-        "IG_SESSION_ID": "your_sessionid_cookie"
+        "IG_USERNAME": "your_instagram_username",
+        "IG_PASSWORD": "your_instagram_password"
       }
     }
   }
@@ -78,7 +80,8 @@ Add the following to the `mcpServers` section:
         "/absolute/path/to/mcp-instagram"
       ],
       "env": {
-        "IG_SESSION_ID": "your_sessionid_cookie"
+        "IG_USERNAME": "your_instagram_username",
+        "IG_PASSWORD": "your_instagram_password"
       }
     }
   }
@@ -95,7 +98,8 @@ Add the following to the `mcpServers` section:
         "/absolute/path/to/mcp-instagram/build/server.js"
       ],
       "env": {
-        "IG_SESSION_ID": "your_sessionid_cookie"
+        "IG_USERNAME": "your_instagram_username",
+        "IG_PASSWORD": "your_instagram_password"
       }
     }
   }
@@ -110,7 +114,7 @@ Add the following to the `mcpServers` section:
 ## Environment Variables (Optional)
 
 Instead of hardcoding credentials in the config, you can use environment variables. The server will automatically load from:
-- Environment variables: `IG_SESSION_ID` (the `sessionid` cookie of a logged-in instagram.com browser session; see "Logging in" in README.md), plus the optional `IG_USERNAME`, `IG_SESSION_DIR` and `IG_RATE_LIMITS` (see the Configuration section of README.md). Password login (`IG_PASSWORD`) is currently unavailable.
+- Environment variables: `IG_USERNAME` and `IG_PASSWORD`, or `IG_SESSION_ID` (the `sessionid` cookie of a logged-in instagram.com browser session), plus the optional `IG_SESSION_DIR` and `IG_RATE_LIMITS` (see "Logging in" and "Configuration" in README.md)
 - Or set them in the `env` section of the MCP config (as shown above)
 
 ## Verifying the Setup
@@ -127,7 +131,8 @@ Instead of hardcoding credentials in the config, you can use environment variabl
 - Check that Node.js is accessible from the PATH
 
 ### Authentication errors
-- Check that `IG_SESSION_ID` is the current `sessionid` cookie; if you logged out in the browser or changed your password, copy a fresh one
+- Verify your Instagram credentials, and enter the two-factor code when asked (email, SMS or authenticator app)
+- With `IG_SESSION_ID`: if you logged out in the browser or changed your password, copy a fresh `sessionid` cookie
 - Ensure environment variables are set correctly
 
 ### Session persistence

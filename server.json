@@ -21,19 +21,19 @@
       },
       "environmentVariables": [
         {
-          "name": "IG_SESSION_ID",
-          "description": "Value of the `sessionid` cookie from a logged-in instagram.com browser session. Used instead of a password login.",
-          "isRequired": false,
-          "isSecret": true
-        },
-        {
           "name": "IG_USERNAME",
-          "description": "Instagram username. Optional with IG_SESSION_ID; if set, a session for a different account is refused.",
+          "description": "Instagram username (or email/phone) for password login. If it is a username, a saved session for another account is refused.",
           "isRequired": false
         },
         {
           "name": "IG_PASSWORD",
-          "description": "Instagram password, for password login (currently unavailable; use IG_SESSION_ID). Never written to disk.",
+          "description": "Instagram password for login. Sent once, encrypted; never written to disk. Two-factor codes are requested when needed.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "IG_SESSION_ID",
+          "description": "Alternative to a password: the `sessionid` cookie of a logged-in instagram.com browser session.",
           "isRequired": false,
           "isSecret": true
         },
