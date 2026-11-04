@@ -3,13 +3,28 @@
  * Handles initialization and state management for Instagram Private API
  */
 
-import { IgApiClient, IgLoginTwoFactorRequiredError } from "instagram-private-api";
-import type { IGPAPIConfig, TwoFactorAuthInfo } from "../types/index.js";
+import {
+  IgApiClient,
+  IgCookieNotFoundError,
+  IgLoginRequiredError,
+  IgLoginTwoFactorRequiredError,
+} from "instagram-private-api";
+import type { TwoFactorAuthInfo } from "../types/index.js";
 import { loadSession, saveSession, deleteSession } from "./session.js";
+
+/**
+ * True when Instagram rejected the restored session itself. Other failures
+ * (network errors, rate limits, 5xx) say nothing about the session, so it is
+ * kept: discarding it forces a fresh password login, which is what tends to
+ * trigger Instagram's suspicious-login checkpoints.
+ */
+export function isInvalidSessionError(error: unknown): boolean {
+  return error instanceof IgLoginRequiredError || error instanceof IgCookieNotFoundError;
+}
 
 export class IGPAPIClient {
   private client: IgApiClient | null = null;
-  private config: IGPAPIConfig | null = null;
+  private username: string | null = null;
   private initialized: boolean = false;
   private loggedIn: boolean = false;
   private twoFactorInfo: TwoFactorAuthInfo | null = null;
@@ -30,12 +45,22 @@ export class IGPAPIClient {
     if (sessionLoaded) {
       try {
         // Verify session is still valid
-        await this.client.account.currentUser();
+        const user = await this.client.account.currentUser();
+        this.username = user.username ?? null;
         this.loggedIn = true;
-      } catch {
-        // Session invalid, clear it
-        await deleteSession();
-        this.loggedIn = false;
+      } catch (error) {
+        if (isInvalidSessionError(error)) {
+          await deleteSession();
+          this.loggedIn = false;
+        } else {
+          // Could not verify (e.g. offline). Keep the restored cookies; if they
+          // turn out to be invalid, the login tool re-authenticates.
+          console.error(
+            "[mcp-instagram] Could not verify the saved session; keeping it:",
+            error instanceof Error ? error.message : String(error)
+          );
+          this.loggedIn = true;
+        }
       }
     }
   }
@@ -63,7 +88,8 @@ export class IGPAPIClient {
       // Save session
       await saveSession(this.client);
 
-      this.config = { username, password };
+      // Keep only the username; the password is not retained after login.
+      this.username = username;
       this.loggedIn = true;
       this.twoFactorInfo = null; // Clear any pending 2FA info
     } catch (error: unknown) {
@@ -118,7 +144,7 @@ export class IGPAPIClient {
       await saveSession(this.client);
 
       this.loggedIn = true;
-      this.config = { username: this.twoFactorInfo.username };
+      this.username = this.twoFactorInfo.username;
       this.twoFactorInfo = null; // Clear 2FA info after successful login
     } catch (error) {
       // Clear 2FA info on error so user can retry
@@ -159,6 +185,13 @@ export class IGPAPIClient {
   }
 
   /**
+   * Username of the logged-in account, if known
+   */
+  getUsername(): string | null {
+    return this.username;
+  }
+
+  /**
    * Check if user is logged in
    */
   isLoggedIn(): boolean {
@@ -181,7 +214,7 @@ export class IGPAPIClient {
   async logout(): Promise<void> {
     await deleteSession();
     this.client = null;
-    this.config = null;
+    this.username = null;
     this.initialized = false;
     this.loggedIn = false;
     this.twoFactorInfo = null;
@@ -192,7 +225,7 @@ export class IGPAPIClient {
    */
   reset(): void {
     this.client = null;
-    this.config = null;
+    this.username = null;
     this.initialized = false;
     this.loggedIn = false;
     this.twoFactorInfo = null;

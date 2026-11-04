@@ -1,22 +1,143 @@
 /**
- * Session persistence utilities for IGPAPI
+ * Session persistence for the Instagram client.
+ *
+ * The session file holds Instagram auth cookies, so it is a bearer credential.
+ * It is stored in a per-user config directory rather than the working
+ * directory (which under `npx` is the npm cache), written atomically, and made
+ * readable only by the owner (directory 0700, file 0600).
+ *
+ * Location, in order of precedence:
+ *   1. $IG_SESSION_DIR
+ *   2. %APPDATA%\mcp-instagram on Windows
+ *   3. $XDG_CONFIG_HOME/mcp-instagram (if absolute), else ~/.config/mcp-instagram
  */
 
-import { promises as fs } from "fs";
-import { join } from "path";
+import { promises as fs } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { IgApiClient } from "instagram-private-api";
 
-const SESSION_DIR = join(process.cwd(), "data");
-const SESSION_FILE = join(SESSION_DIR, "session.json");
+const APP_DIR_NAME = "mcp-instagram";
+const SESSION_FILE_NAME = "session.json";
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
+
+/** Directory that holds the session file. Resolved on every call so env changes apply. */
+export function getSessionDir(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): string {
+  if (env.IG_SESSION_DIR) {
+    return resolve(env.IG_SESSION_DIR);
+  }
+  if (platform === "win32") {
+    return join(env.APPDATA || join(homedir(), "AppData", "Roaming"), APP_DIR_NAME);
+  }
+  const xdg = env.XDG_CONFIG_HOME;
+  const base = xdg && isAbsolute(xdg) ? xdg : join(homedir(), ".config");
+  return join(base, APP_DIR_NAME);
+}
+
+/** Full path of the session file. */
+export function getSessionFilePath(): string {
+  return join(getSessionDir(), SESSION_FILE_NAME);
+}
 
 /**
- * Ensure the session directory exists
+ * Where versions <= 0.0.6 wrote the session: `data/session.json` under the
+ * working directory, which `bin/insta-mcp.js` set to the package root.
  */
-async function ensureSessionDir(): Promise<void> {
+function getLegacySessionPaths(): string[] {
+  const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
+  const candidates = [
+    join(process.cwd(), "data", SESSION_FILE_NAME),
+    join(packageRoot, "data", SESSION_FILE_NAME),
+  ];
+  return [...new Set(candidates)];
+}
+
+async function fileExists(path: string): Promise<boolean> {
   try {
-    await fs.mkdir(SESSION_DIR, { recursive: true });
+    await fs.access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureSessionDir(dir: string): Promise<void> {
+  await fs.mkdir(dir, { recursive: true, mode: DIR_MODE });
+  // mkdir's mode only applies to directories it creates. Tighten the default
+  // directory too, since it is ours. A user-chosen IG_SESSION_DIR is left alone.
+  if (!process.env.IG_SESSION_DIR && process.platform !== "win32") {
+    await fs.chmod(dir, DIR_MODE);
+  }
+}
+
+/** Write `data` to `file` with mode 0600 via a temp file and rename, so readers never see a partial file. */
+async function writePrivateFileAtomic(file: string, data: string): Promise<void> {
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await fs.writeFile(tmp, data, { encoding: "utf-8", mode: FILE_MODE });
+    await fs.rename(tmp, file);
   } catch (error) {
-    // Directory might already exist, ignore error
+    await fs.rm(tmp, { force: true });
+    throw error;
+  }
+}
+
+/** True if `data` looks like a serialized instagram-private-api state, not some other app's file. */
+function looksLikeIgSession(data: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(data);
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "cookies" in parsed &&
+      ("deviceString" in parsed || "constants" in parsed)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Move a session written by an older version into the default location.
+ * Skipped when IG_SESSION_DIR is set (an explicit location is never populated
+ * from elsewhere) or when a session already exists.
+ */
+export async function migrateLegacySession(
+  candidates: string[] = getLegacySessionPaths()
+): Promise<void> {
+  if (process.env.IG_SESSION_DIR) {
+    return;
+  }
+  const target = getSessionFilePath();
+  if (await fileExists(target)) {
+    return;
+  }
+  for (const legacy of candidates) {
+    if (legacy === target || !(await fileExists(legacy))) {
+      continue;
+    }
+    try {
+      const data = await fs.readFile(legacy, "utf-8");
+      if (!looksLikeIgSession(data)) {
+        continue;
+      }
+      await ensureSessionDir(dirname(target));
+      await writePrivateFileAtomic(target, data);
+      await fs.rm(legacy, { force: true });
+      console.error(`[mcp-instagram] Moved session file from ${legacy} to ${target}`);
+    } catch (error) {
+      console.error(
+        `[mcp-instagram] Could not move legacy session file ${legacy}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+    return;
   }
 }
 
@@ -24,26 +145,37 @@ async function ensureSessionDir(): Promise<void> {
  * Save IGPAPI session state to file
  */
 export async function saveSession(ig: IgApiClient): Promise<void> {
+  const file = getSessionFilePath();
   try {
-    await ensureSessionDir();
+    await ensureSessionDir(dirname(file));
     const serialized = await ig.state.serialize();
-    await fs.writeFile(SESSION_FILE, JSON.stringify(serialized, null, 2), "utf-8");
+    await writePrivateFileAtomic(file, JSON.stringify(serialized));
   } catch (error) {
     throw new Error(`Failed to save session: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 /**
- * Load IGPAPI session state from file
+ * Load IGPAPI session state from file.
+ * Returns false if there is no session or it cannot be parsed.
  */
 export async function loadSession(ig: IgApiClient): Promise<boolean> {
+  await migrateLegacySession();
+  const file = getSessionFilePath();
+  let raw: string;
   try {
-    const sessionData = await fs.readFile(SESSION_FILE, "utf-8");
-    const session = JSON.parse(sessionData);
-    await ig.state.deserialize(session);
+    raw = await fs.readFile(file, "utf-8");
+  } catch {
+    return false;
+  }
+  // Files written by older versions may be world-readable.
+  if (process.platform !== "win32") {
+    await fs.chmod(file, FILE_MODE).catch(() => undefined);
+  }
+  try {
+    await ig.state.deserialize(JSON.parse(raw));
     return true;
-  } catch (error) {
-    // Session file doesn't exist or is invalid
+  } catch {
     return false;
   }
 }
@@ -52,22 +184,12 @@ export async function loadSession(ig: IgApiClient): Promise<boolean> {
  * Check if session file exists
  */
 export async function sessionExists(): Promise<boolean> {
-  try {
-    await fs.access(SESSION_FILE);
-    return true;
-  } catch {
-    return false;
-  }
+  return fileExists(getSessionFilePath());
 }
 
 /**
  * Delete saved session file
  */
 export async function deleteSession(): Promise<void> {
-  try {
-    await fs.unlink(SESSION_FILE);
-  } catch (error) {
-    // File might not exist, ignore error
-  }
+  await fs.rm(getSessionFilePath(), { force: true });
 }
-
