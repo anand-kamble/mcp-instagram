@@ -35,12 +35,21 @@ export function isInvalidSessionError(error: unknown): boolean {
  */
 export const REQUEST_TIMEOUT_MS = 30_000;
 
+/** Message of the error thrown by a login that a logout overtook. */
+export const LOGIN_CANCELLED_MESSAGE = "Login was cancelled by a logout.";
+
 export class IGPAPIClient {
   private client: IgApiClient | null = null;
   private username: string | null = null;
   private initialized: boolean = false;
   private loggedIn: boolean = false;
   private twoFactorInfo: TwoFactorAuthInfo | null = null;
+  /**
+   * Incremented by logout() and reset(). A restore or login that was in
+   * flight when it changed abandons its result instead of resurrecting a
+   * session the user just logged out of.
+   */
+  private authEpoch = 0;
 
   /**
    * Initialize the IGPAPI client instance
@@ -50,33 +59,62 @@ export class IGPAPIClient {
       return; // Already initialized
     }
 
-    this.client = new IgApiClient();
-    this.client.request.defaults.timeout = REQUEST_TIMEOUT_MS;
+    const epoch = this.authEpoch;
+    const client = new IgApiClient();
+    client.request.defaults.timeout = REQUEST_TIMEOUT_MS;
+    this.client = client;
     this.initialized = true;
 
     // Try to restore session
-    const sessionLoaded = await loadSession(this.client);
-    if (sessionLoaded) {
-      try {
-        // Verify session is still valid
-        const user = await this.client.account.currentUser();
-        this.username = user.username ?? null;
+    const sessionLoaded = await loadSession(client);
+    if (!sessionLoaded || epoch !== this.authEpoch) {
+      return;
+    }
+    try {
+      // Verify session is still valid
+      const user = await client.account.currentUser();
+      if (epoch !== this.authEpoch) {
+        return;
+      }
+      this.username = user.username ?? null;
+      this.loggedIn = true;
+    } catch (error) {
+      if (epoch !== this.authEpoch) {
+        return;
+      }
+      if (isInvalidSessionError(error)) {
+        await deleteSession();
+        this.loggedIn = false;
+      } else {
+        // Could not verify (e.g. offline). Keep the restored cookies; if they
+        // turn out to be invalid, the login tool re-authenticates.
+        console.error(
+          "[mcp-instagram] Could not verify the saved session; keeping it:",
+          error instanceof Error ? error.message : String(error)
+        );
         this.loggedIn = true;
-      } catch (error) {
-        if (isInvalidSessionError(error)) {
-          await deleteSession();
-          this.loggedIn = false;
-        } else {
-          // Could not verify (e.g. offline). Keep the restored cookies; if they
-          // turn out to be invalid, the login tool re-authenticates.
-          console.error(
-            "[mcp-instagram] Could not verify the saved session; keeping it:",
-            error instanceof Error ? error.message : String(error)
-          );
-          this.loggedIn = true;
-        }
       }
     }
+  }
+
+  /**
+   * Save `client`'s session and mark it logged in, unless a logout happened
+   * since `epoch` was captured; then undo the save and throw.
+   */
+  private async commitLogin(client: IgApiClient, epoch: number, username: string): Promise<void> {
+    if (epoch !== this.authEpoch) {
+      throw new Error(LOGIN_CANCELLED_MESSAGE);
+    }
+    await saveSession(client);
+    if (epoch !== this.authEpoch) {
+      // A logout ran while the file was being written.
+      await deleteSession();
+      throw new Error(LOGIN_CANCELLED_MESSAGE);
+    }
+    // Keep only the username; the password is not retained after login.
+    this.username = username;
+    this.loggedIn = true;
+    this.twoFactorInfo = null; // Clear any pending 2FA info
   }
 
   /**
@@ -88,30 +126,26 @@ export class IGPAPIClient {
       await this.initialize();
     }
 
-    if (!this.client) {
+    const client = this.client;
+    if (!client) {
       throw new Error("Failed to initialize IGPAPI client");
     }
+    const epoch = this.authEpoch;
 
     // Generate device based on username
-    this.client.state.generateDevice(username);
+    client.state.generateDevice(username);
 
     try {
       // Perform login
-      await this.client.account.login(username, password);
-
-      // Save session
-      await saveSession(this.client);
-
-      // Keep only the username; the password is not retained after login.
-      this.username = username;
-      this.loggedIn = true;
-      this.twoFactorInfo = null; // Clear any pending 2FA info
+      await client.account.login(username, password);
     } catch (error: unknown) {
+      if (epoch !== this.authEpoch) {
+        throw new Error(LOGIN_CANCELLED_MESSAGE);
+      }
       // Check if 2FA is required
       if (error instanceof IgLoginTwoFactorRequiredError) {
-        const twoFactorError = error as IgLoginTwoFactorRequiredError;
-        const twoFactorInfo = twoFactorError.response?.body?.two_factor_info;
-        
+        const twoFactorInfo = error.response?.body?.two_factor_info;
+
         if (twoFactorInfo) {
           const verificationMethod = twoFactorInfo.totp_two_factor_on ? "0" : "1"; // '0' = TOTP, '1' = SMS
 
@@ -130,41 +164,44 @@ export class IGPAPIClient {
       // Re-throw other errors
       throw error;
     }
+
+    await this.commitLogin(client, epoch, username);
   }
 
   /**
    * Complete 2FA login with verification code
    */
   async completeTwoFactorLogin(verificationCode: string): Promise<void> {
-    if (!this.client) {
+    const client = this.client;
+    if (!client) {
       throw new Error("IGPAPI client not initialized. Please call login first.");
     }
 
-    if (!this.twoFactorInfo) {
+    const pending = this.twoFactorInfo;
+    if (!pending) {
       throw new Error("No pending 2FA login. Please call login first.");
     }
+    const epoch = this.authEpoch;
 
     try {
       // Complete 2FA login
-      await this.client.account.twoFactorLogin({
-        username: this.twoFactorInfo.username,
+      await client.account.twoFactorLogin({
+        username: pending.username,
         verificationCode,
-        twoFactorIdentifier: this.twoFactorInfo.twoFactorIdentifier,
-        verificationMethod: this.twoFactorInfo.verificationMethod,
+        twoFactorIdentifier: pending.twoFactorIdentifier,
+        verificationMethod: pending.verificationMethod,
         trustThisDevice: "1", // Trust this device
       });
-
-      // Save session
-      await saveSession(this.client);
-
-      this.loggedIn = true;
-      this.username = this.twoFactorInfo.username;
-      this.twoFactorInfo = null; // Clear 2FA info after successful login
     } catch (error) {
+      if (epoch !== this.authEpoch) {
+        throw new Error(LOGIN_CANCELLED_MESSAGE);
+      }
       // Clear 2FA info on error so user can retry
       this.twoFactorInfo = null;
       throw error;
     }
+
+    await this.commitLogin(client, epoch, pending.username);
   }
 
   /**
@@ -226,18 +263,15 @@ export class IGPAPIClient {
    * Logout and clear session
    */
   async logout(): Promise<void> {
+    this.reset();
     await deleteSession();
-    this.client = null;
-    this.username = null;
-    this.initialized = false;
-    this.loggedIn = false;
-    this.twoFactorInfo = null;
   }
 
   /**
    * Reset/clear the client (keeps instance but clears state)
    */
   reset(): void {
+    this.authEpoch++;
     this.client = null;
     this.username = null;
     this.initialized = false;

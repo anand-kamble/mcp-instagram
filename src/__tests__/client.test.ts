@@ -11,7 +11,14 @@ import {
 import { promises as fs } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { IGPAPIClient, isInvalidSessionError, REQUEST_TIMEOUT_MS } from "../igpapi/client.js";
+import type { IgApiClient } from "instagram-private-api";
+import {
+  IGPAPIClient,
+  isInvalidSessionError,
+  LOGIN_CANCELLED_MESSAGE,
+  REQUEST_TIMEOUT_MS,
+} from "../igpapi/client.js";
+import { sessionExists } from "../igpapi/session.js";
 
 function fakeResponse(statusCode: number, message: string) {
   return {
@@ -49,6 +56,56 @@ describe("IGPAPIClient.initialize", () => {
     if (savedSessionDir === undefined) delete process.env.IG_SESSION_DIR;
     else process.env.IG_SESSION_DIR = savedSessionDir;
     await fs.rm(sessionDir, { recursive: true, force: true });
+  });
+
+  /** Replaces account.login on the client's current IgApiClient. */
+  function stubLogin(ig: IgApiClient, impl: () => Promise<unknown>) {
+    (ig.account as unknown as { login: () => Promise<unknown> }).login = impl;
+  }
+
+  function deferred() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  it("abandons a login that a logout overtook", async () => {
+    const client = new IGPAPIClient();
+    await client.initialize();
+    const gate = deferred();
+    stubLogin(client.getClient(), () => gate.promise);
+
+    const inFlight = client.login("alice", "secret");
+    await client.logout();
+    gate.resolve();
+
+    await expect(inFlight).rejects.toThrow(LOGIN_CANCELLED_MESSAGE);
+    expect(client.isLoggedIn()).toBe(false);
+    expect(client.getUsername()).toBeNull();
+    expect(await sessionExists()).toBe(false);
+  });
+
+  it("keeps a login made after logout when an older login finishes later", async () => {
+    const client = new IGPAPIClient();
+    await client.initialize();
+    const gate = deferred();
+    stubLogin(client.getClient(), () => gate.promise);
+    const stale = client.login("alice", "secret");
+
+    await client.logout();
+    await client.initialize();
+    stubLogin(client.getClient(), async () => ({}));
+    await client.login("alice", "secret");
+    expect(client.isLoggedIn()).toBe(true);
+    expect(await sessionExists()).toBe(true);
+
+    gate.resolve();
+    await expect(stale).rejects.toThrow(LOGIN_CANCELLED_MESSAGE);
+    expect(client.isLoggedIn()).toBe(true);
+    expect(client.getUsername()).toBe("alice");
+    expect(await sessionExists()).toBe(true);
   });
 
   it("bounds every Instagram request with a timeout", async () => {
