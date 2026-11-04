@@ -11,6 +11,7 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  collectStrings,
   AP_2SV_CODE_ENTRY,
   AP_2SV_CODE_ENTRY_ASYNC,
   AP_2SV_ENTRYPOINT,
@@ -45,6 +46,14 @@ export class IgLoginFlowError extends IgError {
 
 /** Instagram asked to continue with the legacy accounts/login flow, which it now rejects. */
 export class IgLoginFallbackError extends IgLoginFlowError {}
+
+/**
+ * Instagram answered the password with its "first password failure" screen:
+ * it calls the password incorrect and offers to log in with a code sent to
+ * the account's email (com.bloks.www.caa.ar.*). It may also use this screen
+ * for a login it finds suspicious. This server cannot complete that step yet.
+ */
+export class IgPasswordRejectedError extends IgLoginFlowError {}
 
 /** The verification code was not accepted (wrong or expired). */
 export class IgTwoFactorCodeError extends IgLoginFlowError {}
@@ -88,8 +97,18 @@ function networkInfo(): Json {
 
 const looksLikeBackupCode = (code: string): boolean => /^\d{8}$/.test(code.trim().replace(/[\s-]+/g, ""));
 
+/** Removes bearer tokens and session ids from captured text. */
+export function redactSecrets(text: string): string {
+  return text
+    .replace(/(IGT:2:)[A-Za-z0-9+/=_-]{8,}/g, "$1<redacted>")
+    .replace(/(sessionid(?:%3D|=|\\?":\\?"))[^;"\\\s]+/gi, "$1<redacted>")
+    .replace(/(#PWD_INSTAGRAM:\d:\d+:)[A-Za-z0-9+/=]+/g, "$1<redacted>");
+}
+
 export class CaaLogin {
   private passwordSubmitted = false;
+  /** Recent login-flow responses (redacted), for diagnosing screens the flow does not handle. */
+  readonly trace: Array<{ path: string; body: string }> = [];
 
   /**
    * @param paceMs instagrapi waits 1 s before requests not flagged as login
@@ -102,9 +121,12 @@ export class CaaLogin {
     private readonly isCurrent: () => boolean = () => true
   ) {}
 
-  private request<T>(req: Parameters<InstagramClient["request"]>[0]): Promise<T> {
+  private async request<T>(req: Parameters<InstagramClient["request"]>[0]): Promise<T> {
     if (!this.isCurrent()) throw new IgLoginCancelledError();
-    return this.client.request<T>(req);
+    const result = await this.client.request<T>(req);
+    this.trace.push({ path: req.path, body: redactSecrets(JSON.stringify(result)) });
+    if (this.trace.length > 12) this.trace.shift();
+    return result;
   }
 
   private async pace(): Promise<void> {
@@ -352,6 +374,17 @@ export class CaaLogin {
     const context = extractTwoStepVerificationContext(sendResult);
     if (context) {
       return { status: "two_factor", pending: await this.openTwoStep(context, sendResult, prepared.aac) };
+    }
+    // Checked before the fallback marker: this screen declares the marker as
+    // an inactive state, so its presence alone does not mean a fallback.
+    const strings = collectStrings(sendResult).join("\n");
+    if (strings.includes("com.bloks.www.caa.ar.submit_code.async") && strings.includes("FIRST_PASSWORD_FAILURE")) {
+      throw new IgPasswordRejectedError(
+        "Instagram says the password is incorrect and offered to log in with a code sent to the account's email " +
+          "instead, a step this server cannot complete yet. Check IG_PASSWORD by logging in on instagram.com; " +
+          "if it is right, Instagram may be treating this login as suspicious. Logging in with IG_SESSION_ID avoids this.",
+        { screen: "caa.ar first_password_failure" }
+      );
     }
     if (hints.fallback) {
       throw new IgLoginFallbackError(

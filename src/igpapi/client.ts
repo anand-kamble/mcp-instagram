@@ -8,9 +8,13 @@
  */
 
 import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { getConfig } from "../config/index.js";
 import {
   CaaLogin,
+  IgLoginCancelledError,
+  IgLoginFlowError,
   IgLoginRequiredError,
   IgNoSessionError,
   IgUserHasLoggedOutError,
@@ -73,6 +77,30 @@ function configuredUsername(): string | undefined {
 export function userIdFromSessionId(sessionid: string): string | undefined {
   const match = /^(\d+)(?:%3A|:)/i.exec(sessionid);
   return match && sessionid.length >= 30 ? match[1] : undefined;
+}
+
+/**
+ * With IG_DEBUG_CAPTURE=<dir>, a login that hits a screen the flow does not
+ * handle writes Instagram's recent login-flow responses (tokens and session
+ * ids redacted) to <dir>/caa-<time>.json with mode 0600, for porting the
+ * screen. Off by default; the files may still contain account details.
+ */
+export function writeDebugCapture(caa: CaaLogin, error: Error): string | undefined {
+  const dir = process.env.IG_DEBUG_CAPTURE;
+  if (!dir) return undefined;
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = join(dir, `caa-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+    writeFileSync(file, JSON.stringify({ error: `${error.name}: ${error.message}`, responses: caa.trace }, null, 1), {
+      mode: 0o600,
+      flag: "wx",
+    });
+    console.error(`[mcp-instagram] Saved the login-flow responses to ${file} (IG_DEBUG_CAPTURE).`);
+    return file;
+  } catch (writeError) {
+    console.error("[mcp-instagram] Could not write IG_DEBUG_CAPTURE file:", writeError instanceof Error ? writeError.message : String(writeError));
+    return undefined;
+  }
 }
 
 /** SHA-256 of an IG_SESSION_ID value, so the session file records its source without storing it again. */
@@ -392,6 +420,9 @@ export class IGPAPIClient {
     } catch (error) {
       if (epoch === this.authEpoch) {
         this.recordLoginFailure(error);
+      }
+      if (error instanceof IgLoginFlowError && !(error instanceof IgLoginCancelledError)) {
+        writeDebugCapture(caa, error);
       }
       throw error;
     }
