@@ -16,6 +16,7 @@ import type { CallToolResult, InputRequiredResult, McpServer } from "@modelconte
 import * as z from "zod";
 import { getConfig } from "../config/index.js";
 import { igpapiClient } from "../igpapi/index.js";
+import { isInvalidSessionError } from "../igpapi/client.js";
 import type { TwoFactorAuthInfo } from "../types/index.js";
 import { clientSupportsFormElicitation } from "./shared/elicitation.js";
 import { toToolError, waitForStartup } from "./shared/instagram.js";
@@ -149,8 +150,13 @@ export function registerLogin(server: McpServer): void {
       if (igpapiClient.isLoggedIn()) {
         try {
           return await loggedInSummary("Already logged in to Instagram.");
-        } catch {
-          // The saved session no longer works; fall through and log in again.
+        } catch (error) {
+          // Only a session Instagram rejected justifies a fresh password login.
+          // Timeouts, network errors and rate limits say nothing about the
+          // session, and logging in again would overwrite a working one.
+          if (!isInvalidSessionError(error)) {
+            throw toToolError(error);
+          }
         }
       }
 

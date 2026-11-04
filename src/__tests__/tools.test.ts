@@ -248,12 +248,16 @@ describe("profile and search tools", () => {
 
   it("instagram_get_current_user_profile merges account and profile data", async () => {
     stubInstagram({
-      account: { currentUser: jest.fn(async () => ({ pk: 7, username: "nasa", email: "me@example.com" })) },
+      account: {
+        currentUser: jest.fn(async () => ({ pk: 7, username: "nasa", email: "me@example.com", phone_number: "+15550100" })),
+      },
       user: { info: jest.fn(async () => rawUser) },
     });
     const result = await call(connection, "instagram_get_current_user_profile");
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toMatchObject({ username: "nasa", followerCount: 1000, email: "me@example.com" });
+    expect(result.structuredContent).toMatchObject({ username: "nasa", followerCount: 1000 });
+    // The private login email/phone must not reach the model's context.
+    expect(JSON.stringify(result)).not.toContain("me@example.com");
   });
 
   it("instagram_search_accounts applies the limit and reports the total", async () => {
