@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { userIdInput, usernameInput, userSummarySchema } from "./shared/schemas.js";
-import { getLoggedInClient, normalizeUsername, toToolError } from "./shared/instagram.js";
+import { getLoggedInApi, normalizeUsername, toToolError } from "./shared/instagram.js";
 import { compact, toUserSummary } from "./shared/mappers.js";
 import { structuredResult } from "./shared/results.js";
 
@@ -46,7 +46,7 @@ function optionalNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-/** Maps a raw igpapi user object (`user.info` / `user.usernameinfo`) to a UserProfile. */
+/** Maps a raw Instagram user object (`users/{id}/info` / `usernameinfo`) to a UserProfile. */
 export function toUserProfile(user: Raw): UserProfile {
   const accountType = user.is_business || user.is_business_account
     ? "business"
@@ -83,12 +83,12 @@ export function registerGetUserProfile(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ userId, username }) => {
-      const client = await getLoggedInClient();
+      const api = await getLoggedInApi();
       const subject = username ? `user "${normalizeUsername(username)}"` : `user ID ${userId}`;
       try {
         const info = username
-          ? await client.user.usernameinfo(normalizeUsername(username))
-          : await client.user.info(userId as string);
+          ? await api.usernameInfo(normalizeUsername(username))
+          : await api.userInfo(userId as string);
         return structuredResult(toUserProfile(info));
       } catch (error) {
         throw toToolError(error, subject);

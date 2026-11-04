@@ -5,6 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { igpapiClient } from "../igpapi/index.js";
+import { InstagramApi } from "../instagram/api.js";
 import { waitForStartup, withTimeout } from "./shared/instagram.js";
 import { closeTwoFactorPage } from "./shared/twoFactorPage.js";
 import { textResult } from "./shared/results.js";
@@ -22,7 +23,7 @@ async function endSession(): Promise<boolean> {
     // Deleting the file alone leaves the cookies valid on Instagram. Offline
     // or an already-dead session must not block the local logout.
     try {
-      revoked = (await withTimeout(igpapiClient.getClient().account.logout(), REVOKE_TIMEOUT_MS)).done;
+      revoked = (await withTimeout(new InstagramApi(igpapiClient.getClient()).logout(), REVOKE_TIMEOUT_MS)).done;
     } catch {
       revoked = false;
     }

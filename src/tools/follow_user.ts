@@ -7,7 +7,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { userIdInput } from "./shared/schemas.js";
 import { consumeRateLimit } from "../utils/index.js";
-import { getLoggedInClient, toToolError } from "./shared/instagram.js";
+import { getLoggedInApi, toToolError } from "./shared/instagram.js";
 import { structuredResult } from "./shared/results.js";
 
 export function registerFollowUser(server: McpServer): void {
@@ -34,10 +34,10 @@ export function registerFollowUser(server: McpServer): void {
       },
     },
     async ({ userId }) => {
-      const client = await getLoggedInClient();
+      const api = await getLoggedInApi();
       consumeRateLimit("follow");
       try {
-        const status = await client.friendship.create(userId);
+        const status = await api.follow(userId);
         return structuredResult({
           userId,
           following: Boolean(status?.following),

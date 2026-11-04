@@ -11,7 +11,8 @@ import {
   paginationShape,
   userSummarySchema,
 } from "./shared/schemas.js";
-import { getLoggedInClient, toToolError } from "./shared/instagram.js";
+import type { CommentsPage } from "../instagram/api.js";
+import { getLoggedInApi, toToolError } from "./shared/instagram.js";
 import { compact, isoFromUnixSeconds, toUserSummary } from "./shared/mappers.js";
 import { structuredResult } from "./shared/results.js";
 
@@ -41,35 +42,28 @@ const outputSchema = z.object({
 });
 
 /**
- * The comments feed pages with either `max_id` or `min_id` (instagram-private-api
- * keeps them in `nextMaxId` / `nextMinId` and reports more results when either
- * is set). Both are folded into the one opaque `maxId`/`nextMaxId` cursor the
+ * The comments endpoint pages with either `max_id` or `min_id`; more results
+ * exist when either cursor is returned. Both are folded into the one opaque `maxId`/`nextMaxId` cursor the
  * tool exposes; a `min:` prefix marks a min_id cursor. A response can carry
  * both, so a continuation keeps the direction of the cursor it was given; the
  * first page prefers max_id.
  */
 const MIN_CURSOR_PREFIX = "min:";
 
-interface CommentsFeedCursor {
-  nextMaxId?: string;
-  nextMinId?: string;
+/** Splits the tool's opaque cursor into the max_id / min_id Instagram expects. */
+function parseCommentsCursor(cursor: string | undefined): { maxId?: string; minId?: string } {
+  if (!cursor) return {};
+  return cursor.startsWith(MIN_CURSOR_PREFIX)
+    ? { minId: cursor.slice(MIN_CURSOR_PREFIX.length) }
+    : { maxId: cursor };
 }
 
-function setCommentsCursor(feed: CommentsFeedCursor, cursor: string | undefined): void {
-  if (!cursor) return;
-  if (cursor.startsWith(MIN_CURSOR_PREFIX)) {
-    feed.nextMinId = cursor.slice(MIN_CURSOR_PREFIX.length);
-  } else {
-    feed.nextMaxId = cursor;
-  }
-}
-
-function getCommentsCursor(
-  feed: CommentsFeedCursor,
+function nextCommentsCursor(
+  page: CommentsPage,
   previousCursor: string | undefined
 ): { moreAvailable: boolean; nextMaxId?: string } {
-  const max = feed.nextMaxId ? String(feed.nextMaxId) : undefined;
-  const min = feed.nextMinId ? `${MIN_CURSOR_PREFIX}${feed.nextMinId}` : undefined;
+  const max = page.nextMaxId;
+  const min = page.nextMinId ? `${MIN_CURSOR_PREFIX}${page.nextMinId}` : undefined;
   const cursor = previousCursor?.startsWith(MIN_CURSOR_PREFIX) ? (min ?? max) : (max ?? min);
   return cursor ? { moreAvailable: true, nextMaxId: cursor } : { moreAvailable: false };
 }
@@ -100,17 +94,14 @@ export function registerGetPostComments(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ mediaId, maxId, limit }) => {
-      const client = await getLoggedInClient();
+      const api = await getLoggedInApi();
       try {
-        const feed = client.feed.mediaComments(mediaId);
-        const cursorState = feed as unknown as CommentsFeedCursor;
-        setCommentsCursor(cursorState, maxId);
-        const items = await feed.items();
-        const comments = items.slice(0, limit).map(toComment);
+        const page = await api.mediaComments(mediaId, parseCommentsCursor(maxId));
+        const comments = page.comments.slice(0, limit).map(toComment);
         return structuredResult({
           mediaId,
           comments,
-          ...getCommentsCursor(cursorState, maxId),
+          ...nextCommentsCursor(page, maxId),
         });
       } catch (error) {
         throw toToolError(error, `media ${mediaId}`);

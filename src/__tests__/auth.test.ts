@@ -5,11 +5,12 @@
 
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import type { Client } from "@modelcontextprotocol/client";
-import { IgLoginRequiredError, IgResponseError } from "instagram-private-api";
+import { PASSWORD_LOGIN_UNAVAILABLE_MESSAGE } from "../igpapi/client.js";
+import { IgLoginRequiredError, IgRateLimitedError } from "../instagram/errors.js";
 import { setConfig } from "../config/index.js";
 import { igpapiClient } from "../igpapi/index.js";
 import type { TwoFactorAuthInfo } from "../types/index.js";
-import { call, connect, ERAS, fakeResponse, textOf } from "./helpers.js";
+import { call, connect, ERAS, textOf } from "./helpers.js";
 import type { Connection } from "./helpers.js";
 
 const TWO_FACTOR: TwoFactorAuthInfo = {
@@ -60,9 +61,18 @@ function fakeAccount(initial: Partial<FakeAccount> = {}): FakeAccount {
     .spyOn(igpapiClient, "getCurrentUser")
     .mockImplementation(async () => ({ username: "alice", full_name: "Alice Example", pk: 42 }) as never);
   jest.spyOn(igpapiClient, "getUsername").mockImplementation(() => (state.loggedIn ? "alice" : null));
-  jest
-    .spyOn(igpapiClient, "getClient")
-    .mockImplementation(() => ({ account: { logout: () => state.revoke() } }) as never);
+  jest.spyOn(igpapiClient, "getClient").mockImplementation(
+    () =>
+      ({
+        request: async (req: { path: string }) => (req.path === "accounts/logout/" ? state.revoke() : {}),
+      }) as never
+  );
+  jest.spyOn(igpapiClient, "loginWithSessionId").mockImplementation(async (sessionid: string) => {
+    if (sessionid !== "1000%3Avalid%3A1") {
+      throw new IgLoginRequiredError({ status: 403, path: "users/1000/info/", body: { message: "login_required" } });
+    }
+    state.loggedIn = true;
+  });
   jest.spyOn(igpapiClient, "logout").mockImplementation(async () => {
     state.loggedIn = false;
     state.pending = null;
@@ -118,7 +128,7 @@ function answerUrlElicitations(actions: PageAction[], seen: SeenUrlElicitation[]
 const URL_ELICITATION = { elicitation: { url: {} } };
 
 beforeEach(() => {
-  setConfig({ igpapi: { username: "alice", password: "secret-password" } });
+  setConfig({ igpapi: { sessionId: undefined, username: "alice", password: "secret-password" } });
 });
 
 afterEach(() => {
@@ -152,7 +162,9 @@ describe.each(ERAS)("instagram_login on the %s era", (era) => {
 
   it("keeps a saved session it cannot verify right now instead of logging in again", async () => {
     fakeAccount({ loggedIn: true });
-    jest.spyOn(igpapiClient, "getCurrentUser").mockRejectedValue(new IgResponseError(fakeResponse(429)));
+    jest
+      .spyOn(igpapiClient, "getCurrentUser")
+      .mockRejectedValue(new IgRateLimitedError({ status: 429, path: "accounts/current_user/", body: {} }));
     connection = await connect(era);
     const result = await call(connection, "instagram_login");
     expect(result.isError).toBe(true);
@@ -164,7 +176,9 @@ describe.each(ERAS)("instagram_login on the %s era", (era) => {
     const account = fakeAccount({ loggedIn: true });
     jest
       .spyOn(igpapiClient, "getCurrentUser")
-      .mockRejectedValueOnce(new IgLoginRequiredError(fakeResponse(403, { message: "login_required" })));
+      .mockRejectedValueOnce(
+        new IgLoginRequiredError({ status: 403, path: "accounts/current_user/", body: { message: "login_required" } })
+      );
     connection = await connect(era);
     const result = await call(connection, "instagram_login");
     expect(result.isError).toBeFalsy();
@@ -172,13 +186,44 @@ describe.each(ERAS)("instagram_login on the %s era", (era) => {
     expect(account.loggedIn).toBe(true);
   });
 
-  it("fails clearly when credentials are not configured", async () => {
+  it("fails clearly when no login method is configured", async () => {
     fakeAccount();
     setConfig({ igpapi: { username: undefined, password: undefined } });
     connection = await connect(era);
     const result = await call(connection, "instagram_login");
     expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("IG_SESSION_ID");
     expect(textOf(result)).toContain("IG_USERNAME");
+  });
+
+  it("logs in with IG_SESSION_ID before trying a password login", async () => {
+    const account = fakeAccount();
+    setConfig({ igpapi: { sessionId: "1000%3Avalid%3A1", username: "alice", password: "secret-password" } });
+    connection = await connect(era);
+    const result = await call(connection, "instagram_login");
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toContain("IG_SESSION_ID");
+    expect(igpapiClient.loginWithSessionId).toHaveBeenCalledWith("1000%3Avalid%3A1");
+    expect(igpapiClient.login).not.toHaveBeenCalled();
+    expect(account.loggedIn).toBe(true);
+  });
+
+  it("explains how to refresh an IG_SESSION_ID that Instagram rejects", async () => {
+    fakeAccount();
+    setConfig({ igpapi: { sessionId: "1000%3Aexpired%3A1" } });
+    connection = await connect(era);
+    const result = await call(connection, "instagram_login");
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("Instagram rejected IG_SESSION_ID");
+  });
+
+  it("surfaces why password login is unavailable", async () => {
+    fakeAccount();
+    jest.spyOn(igpapiClient, "login").mockRejectedValue(new Error(PASSWORD_LOGIN_UNAVAILABLE_MESSAGE));
+    connection = await connect(era);
+    const result = await call(connection, "instagram_login");
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("IG_SESSION_ID");
   });
 
   it("opens the one-time code page through URL elicitation and completes the login", async () => {

@@ -1,5 +1,5 @@
 /**
- * Mapping from raw instagram-private-api response objects to the structured
+ * Mapping from raw Instagram API response objects (src/instagram/api.ts) to the structured
  * output shapes in ./schemas.ts.
  *
  * Inputs are typed loosely on purpose: the library's response typings do not

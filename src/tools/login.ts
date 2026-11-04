@@ -1,5 +1,6 @@
 /**
- * instagram_login: signs in with the credentials from IG_USERNAME / IG_PASSWORD.
+ * instagram_login: signs in with IG_SESSION_ID (a browser `sessionid` cookie)
+ * or, failing that, the credentials from IG_USERNAME / IG_PASSWORD.
  *
  * When Instagram asks for a two-factor code, the code is entered on a
  * one-time local web page (shared/twoFactorPage.ts). Clients that support
@@ -122,8 +123,9 @@ export function registerLogin(server: McpServer): void {
     {
       title: "Log in to Instagram",
       description:
-        "Log in to Instagram with the credentials configured in the server environment (IG_USERNAME and IG_PASSWORD). " +
-        "Takes no arguments; never ask the user for their password. If the account uses two-factor authentication, " +
+        "Log in to Instagram with what the server environment provides: IG_SESSION_ID (a browser session cookie, " +
+        "preferred) or IG_USERNAME and IG_PASSWORD. Takes no arguments; never ask the user for their password or " +
+        "session cookie. If a password login needs two-factor authentication, " +
         "the user is asked for the code directly when the client supports it; otherwise the result says to call " +
         "instagram_complete_2fa. The session is saved and reused across restarts.",
       inputSchema: z.object({}).strict(),
@@ -172,6 +174,7 @@ export function registerLogin(server: McpServer): void {
       }
 
       const credentials = getConfig().igpapi;
+      const sessionId = credentials?.sessionId;
       const username = credentials?.username;
       const password = credentials?.password;
 
@@ -195,10 +198,28 @@ export function registerLogin(server: McpServer): void {
         return requestCode(server, ctx, pending);
       }
 
+      // A browser session (IG_SESSION_ID) needs no password login, which
+      // Instagram currently rejects for this client, so it is tried first.
+      if (sessionId) {
+        try {
+          await igpapiClient.loginWithSessionId(sessionId);
+        } catch (error) {
+          if (isInvalidSessionError(error)) {
+            throw new Error(
+              "Instagram rejected IG_SESSION_ID: that browser session has expired or was logged out. " +
+                "Log in to instagram.com again, copy the new `sessionid` cookie into IG_SESSION_ID, and restart the server."
+            );
+          }
+          throw toToolError(error);
+        }
+        return loggedInSummary("Logged in to Instagram with the browser session from IG_SESSION_ID.");
+      }
+
       if (!username || !password) {
         throw new Error(
-          "Instagram credentials are not configured. Set the IG_USERNAME and IG_PASSWORD environment variables " +
-            "in the MCP server configuration and restart the server."
+          "Instagram login is not configured. Set IG_SESSION_ID to the `sessionid` cookie from a browser that is " +
+            "logged in to instagram.com (recommended), or IG_USERNAME and IG_PASSWORD, in the MCP server " +
+            "configuration and restart the server."
         );
       }
 

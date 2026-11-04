@@ -12,14 +12,7 @@ import {
   userIdInput,
   usernameInput,
 } from "./shared/schemas.js";
-import {
-  getFeedCursor,
-  getLoggedInClient,
-  normalizeUsername,
-  resolveUserId,
-  setFeedCursor,
-  toToolError,
-} from "./shared/instagram.js";
+import { getLoggedInApi, normalizeUsername, resolveUserId, toToolError } from "./shared/instagram.js";
 import { toMediaSummary } from "./shared/mappers.js";
 import { structuredResult } from "./shared/results.js";
 
@@ -56,21 +49,20 @@ export function registerGetUserPosts(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ userId, username, maxId, limit }) => {
-      const client = await getLoggedInClient();
+      const api = await getLoggedInApi();
       const subject = username ? `user "${normalizeUsername(username)}"` : `user ID ${userId}`;
       try {
-        const targetUserId = await resolveUserId(client, { userId, username });
-        const feed = client.feed.user(targetUserId);
-        setFeedCursor(feed, maxId);
-        const items = await feed.items();
-        const posts = items.slice(0, limit).map((item) => toMediaSummary(item, { maxCaptionLength: 300 }));
+        const targetUserId = await resolveUserId(api, { userId, username });
+        const page = await api.userFeed(targetUserId, { maxId });
+        const posts = page.items.slice(0, limit).map((item) => toMediaSummary(item, { maxCaptionLength: 300 }));
         const resolvedUsername =
           (username ? normalizeUsername(username) : undefined) ?? posts[0]?.author?.username;
         return structuredResult({
           userId: targetUserId,
           ...(resolvedUsername ? { username: resolvedUsername } : {}),
           posts,
-          ...getFeedCursor(feed),
+          moreAvailable: page.moreAvailable,
+          ...(page.nextMaxId ? { nextMaxId: page.nextMaxId } : {}),
         });
       } catch (error) {
         throw toToolError(error, subject);

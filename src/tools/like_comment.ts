@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { consumeRateLimit } from "../utils/index.js";
-import { getLoggedInClient, toToolError } from "./shared/instagram.js";
+import { getLoggedInApi, toToolError } from "./shared/instagram.js";
 import { textResult } from "./shared/results.js";
 
 export function registerLikeComment(server: McpServer): void {
@@ -30,10 +30,10 @@ export function registerLikeComment(server: McpServer): void {
       },
     },
     async ({ commentId }) => {
-      const client = await getLoggedInClient();
+      const api = await getLoggedInApi();
       consumeRateLimit("like");
       try {
-        await client.media.likeComment(commentId);
+        await api.likeComment(commentId);
       } catch (error) {
         throw toToolError(error, `comment ${commentId}`);
       }

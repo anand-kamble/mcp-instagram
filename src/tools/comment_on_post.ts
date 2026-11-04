@@ -6,7 +6,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { mediaIdInput } from "./shared/schemas.js";
 import { consumeRateLimit } from "../utils/index.js";
-import { getLoggedInClient, toToolError } from "./shared/instagram.js";
+import { getLoggedInApi, toToolError } from "./shared/instagram.js";
 import { compact } from "./shared/mappers.js";
 import { structuredResult } from "./shared/results.js";
 
@@ -48,15 +48,11 @@ export function registerCommentOnPost(server: McpServer): void {
       },
     },
     async ({ mediaId, text, replyToCommentId }) => {
-      const client = await getLoggedInClient();
+      const api = await getLoggedInApi();
       consumeRateLimit("comment");
       let commentId: string | undefined;
       try {
-        const comment = await client.media.comment({
-          mediaId,
-          text: text.trim(),
-          ...(replyToCommentId ? { replyToCommentId } : {}),
-        });
+        const comment = await api.comment(mediaId, text.trim(), replyToCommentId);
         commentId = comment?.pk ? String(comment.pk) : undefined;
       } catch (error) {
         throw toToolError(error, `media ${mediaId}`);

@@ -53,7 +53,7 @@ describe("logout during a stalled startup", () => {
     let loggedIn = true;
     jest.spyOn(igpapiClient, "isLoggedIn").mockImplementation(() => loggedIn);
     jest.spyOn(igpapiClient, "getUsername").mockReturnValue(null);
-    jest.spyOn(igpapiClient, "getClient").mockReturnValue({ account: { logout: async () => ({}) } } as never);
+    jest.spyOn(igpapiClient, "getClient").mockReturnValue({ request: async () => ({}) } as never);
     const logout = jest.spyOn(igpapiClient, "logout").mockImplementation(async () => {
       loggedIn = false;
     });

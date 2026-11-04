@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { cursorInput, limitInput, mediaSummarySchema, paginationShape } from "./shared/schemas.js";
-import { getFeedCursor, getLoggedInClient, setFeedCursor, toToolError } from "./shared/instagram.js";
+import { getLoggedInApi, toToolError } from "./shared/instagram.js";
 import { toMediaSummary } from "./shared/mappers.js";
 import { structuredResult } from "./shared/results.js";
 
@@ -38,18 +38,17 @@ export function registerGetTimelineFeed(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ maxId, limit }) => {
-      const client = await getLoggedInClient();
+      const api = await getLoggedInApi();
       try {
-        const feed = client.feed.timeline();
-        setFeedCursor(feed, maxId);
-        const items = await feed.items();
-        const posts = items.slice(0, limit).map((item) => {
+        const page = await api.timeline({ maxId });
+        const posts = page.items.slice(0, limit).map((item) => {
           const post = toMediaSummary(item, { maxCaptionLength: 300 });
           return item.ad_id || item.ad_metadata ? { ...post, sponsored: true } : post;
         });
         return structuredResult({
           posts,
-          ...getFeedCursor(feed),
+          moreAvailable: page.moreAvailable,
+          ...(page.nextMaxId ? { nextMaxId: page.nextMaxId } : {}),
         });
       } catch (error) {
         throw toToolError(error, "the home timeline");

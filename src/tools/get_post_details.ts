@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { mediaIdInput, mediaSummarySchema } from "./shared/schemas.js";
-import { getLoggedInClient, toToolError } from "./shared/instagram.js";
+import { getLoggedInApi, toToolError } from "./shared/instagram.js";
 import { compact, toMediaSummary } from "./shared/mappers.js";
 import { structuredResult } from "./shared/results.js";
 
@@ -35,13 +35,9 @@ export function registerGetPostDetails(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ mediaId }) => {
-      const client = await getLoggedInClient();
+      const api = await getLoggedInApi();
       try {
-        const { items } = await client.media.info(mediaId);
-        const item = items?.[0];
-        if (!item) {
-          throw new Error(`Media ${mediaId} was not found on Instagram.`);
-        }
+        const item = await api.mediaInfo(mediaId);
         const summary = toMediaSummary(item);
         const caption = summary.caption ?? "";
         return structuredResult(

@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { limitInput, userSummarySchema } from "./shared/schemas.js";
-import { getLoggedInClient, toToolError } from "./shared/instagram.js";
+import { getLoggedInApi, toToolError } from "./shared/instagram.js";
 import { compact, toUserSummary } from "./shared/mappers.js";
 import { structuredResult } from "./shared/results.js";
 
@@ -44,11 +44,11 @@ export function registerSearchAccounts(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ query, limit }) => {
-      const client = await getLoggedInClient();
+      const api = await getLoggedInApi();
       const trimmedQuery = query.trim();
       try {
-        const response = await client.user.search(trimmedQuery);
-        const users = response.users ?? [];
+        // Ask for the maximum page so totalMatches reflects what Instagram found, not the limit.
+        const users = await api.searchUsers(trimmedQuery, 50);
         const accounts = users.slice(0, limit).map((user) =>
           compact({
             ...toUserSummary(user),

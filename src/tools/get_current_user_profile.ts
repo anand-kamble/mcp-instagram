@@ -4,7 +4,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
-import { getLoggedInClient, toToolError } from "./shared/instagram.js";
+import { getLoggedInApi, toToolError } from "./shared/instagram.js";
 import { structuredResult } from "./shared/results.js";
 import { toUserProfile, userProfileSchema } from "./get_user_profile.js";
 
@@ -31,11 +31,11 @@ export function registerGetCurrentUserProfile(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async () => {
-      const client = await getLoggedInClient();
+      const api = await getLoggedInApi();
       try {
-        // account.currentUser() lacks follower/following/post counts and business fields, so merge in user.info().
-        const current = await client.account.currentUser();
-        const info = await client.user.info(current.pk);
+        // accounts/current_user lacks follower/following/post counts and business fields, so merge in users/{id}/info.
+        const current = await api.currentUser();
+        const info = await api.userInfo(String(current.pk));
         return structuredResult(toUserProfile({ ...info, ...current }));
       } catch (error) {
         throw toToolError(error, "your account");

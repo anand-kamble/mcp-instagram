@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { userIdInput, usernameInput } from "./shared/schemas.js";
-import { getLoggedInClient, normalizeUsername, resolveUserId, toToolError } from "./shared/instagram.js";
+import { getLoggedInApi, normalizeUsername, resolveUserId, toToolError } from "./shared/instagram.js";
 import { compact, isoFromUnixSeconds, mediaUrlsOf } from "./shared/mappers.js";
 import { structuredResult } from "./shared/results.js";
 
@@ -118,11 +118,11 @@ export function registerGetUserStories(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ userId, username }) => {
-      const client = await getLoggedInClient();
+      const api = await getLoggedInApi();
       const subject = username ? `user "${normalizeUsername(username)}"` : `user ID ${userId}`;
       try {
-        const targetUserId = await resolveUserId(client, { userId, username });
-        const items = await client.feed.userStory(targetUserId).items();
+        const targetUserId = await resolveUserId(api, { userId, username });
+        const items = await api.userStories(targetUserId);
         const resolvedUsername =
           (username ? normalizeUsername(username) : undefined) ?? items[0]?.user?.username;
         return structuredResult({
