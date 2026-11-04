@@ -66,7 +66,8 @@ The repository includes a GitHub Actions workflow that automatically publishes t
    - Tag version: `v1.0.0` (or any version)
    - Release title: `v1.0.0`
    - Click "Publish release"
-   - The GitHub Action will automatically publish to npm, with a provenance attestation linking the package to the workflow run.
+   - The GitHub Action will automatically publish to npm, with a provenance attestation linking the package to the workflow run, and attach a Claude Desktop bundle (`mcp-instagram-<version>.mcpb`) with its own build attestation to the release.
+   - Pushing a `v<version>` tag (for example `git tag v0.1.0 && git push origin v0.1.0`) does the same and creates the GitHub release if it does not exist yet. The tag must be plain semver after the `v`.
 
 #### Manual Publishing (Alternative)
 
