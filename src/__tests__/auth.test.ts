@@ -5,10 +5,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import type { Client } from "@modelcontextprotocol/client";
+import { IgLoginRequiredError, IgResponseError } from "instagram-private-api";
 import { setConfig } from "../config/index.js";
 import { igpapiClient } from "../igpapi/index.js";
 import type { TwoFactorAuthInfo } from "../types/index.js";
-import { call, connect, ERAS, textOf } from "./helpers.js";
+import { call, connect, ERAS, fakeResponse, textOf } from "./helpers.js";
 import type { Connection } from "./helpers.js";
 
 const TWO_FACTOR: TwoFactorAuthInfo = {
@@ -114,6 +115,28 @@ describe.each(ERAS)("instagram_login on the %s era", (era) => {
     const result = await call(connection, "instagram_login");
     expect(textOf(result)).toContain("Already logged in");
     expect(igpapiClient.login).not.toHaveBeenCalled();
+  });
+
+  it("keeps a saved session it cannot verify right now instead of logging in again", async () => {
+    fakeAccount({ loggedIn: true });
+    jest.spyOn(igpapiClient, "getCurrentUser").mockRejectedValue(new IgResponseError(fakeResponse(429)));
+    connection = await connect(era);
+    const result = await call(connection, "instagram_login");
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("rate limit");
+    expect(igpapiClient.login).not.toHaveBeenCalled();
+  });
+
+  it("logs in again when Instagram rejects the saved session", async () => {
+    const account = fakeAccount({ loggedIn: true });
+    jest
+      .spyOn(igpapiClient, "getCurrentUser")
+      .mockRejectedValueOnce(new IgLoginRequiredError(fakeResponse(403, { message: "login_required" })));
+    connection = await connect(era);
+    const result = await call(connection, "instagram_login");
+    expect(result.isError).toBeFalsy();
+    expect(igpapiClient.login).toHaveBeenCalledTimes(1);
+    expect(account.loggedIn).toBe(true);
   });
 
   it("fails clearly when credentials are not configured", async () => {
