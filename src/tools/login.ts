@@ -114,8 +114,14 @@ export function registerLogin(server: McpServer): void {
         if (!pending) {
           throw new Error("There is no pending two-factor login. Call instagram_login again to start over.");
         }
-        if (answer.action !== "accept") {
-          return manualTwoFactorResult(pending, "The user dismissed the code prompt. The login is still pending.");
+        if (answer.action === "decline") {
+          return textResult(
+            "The user declined to enter the two-factor code, so the Instagram login is not complete. " +
+              "Don't ask for the code again unless the user asks to log in."
+          );
+        }
+        if (answer.action === "cancel") {
+          return manualTwoFactorResult(pending, "The code prompt was dismissed. The login is still pending.");
         }
         const content = acceptedContent(
           ctx.mcpReq.inputResponses,

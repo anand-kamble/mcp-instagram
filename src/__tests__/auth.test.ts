@@ -22,11 +22,19 @@ interface FakeAccount {
   loggedIn: boolean;
   pending: TwoFactorAuthInfo | null;
   requiresTwoFactor: boolean;
+  /** Instagram-side logout call; replace to simulate failures. */
+  revoke: jest.Mock<() => Promise<unknown>>;
 }
 
 /** Wires the singleton to an in-memory account whose login may require 2FA (valid code: 123456). */
 function fakeAccount(initial: Partial<FakeAccount> = {}): FakeAccount {
-  const state: FakeAccount = { loggedIn: false, pending: null, requiresTwoFactor: false, ...initial };
+  const state: FakeAccount = {
+    loggedIn: false,
+    pending: null,
+    requiresTwoFactor: false,
+    revoke: jest.fn(async () => ({ status: "ok" })),
+    ...initial,
+  };
   jest.spyOn(igpapiClient, "isInitialized").mockReturnValue(true);
   jest.spyOn(igpapiClient, "initialize").mockResolvedValue(undefined);
   jest.spyOn(igpapiClient, "isLoggedIn").mockImplementation(() => state.loggedIn);
@@ -50,8 +58,13 @@ function fakeAccount(initial: Partial<FakeAccount> = {}): FakeAccount {
   jest
     .spyOn(igpapiClient, "getCurrentUser")
     .mockImplementation(async () => ({ username: "alice", full_name: "Alice Example", pk: 42 }) as never);
+  jest.spyOn(igpapiClient, "getUsername").mockImplementation(() => (state.loggedIn ? "alice" : null));
+  jest
+    .spyOn(igpapiClient, "getClient")
+    .mockImplementation(() => ({ account: { logout: () => state.revoke() } }) as never);
   jest.spyOn(igpapiClient, "logout").mockImplementation(async () => {
     state.loggedIn = false;
+    state.pending = null;
   });
   return state;
 }
@@ -155,13 +168,22 @@ describe.each(ERAS)("instagram_login on the %s era", (era) => {
     expect(result.isError).toBeFalsy();
   });
 
-  it("leaves the login pending and points to instagram_complete_2fa when the user dismisses the prompt", async () => {
+  it("leaves the login pending and points to instagram_complete_2fa when the prompt is dismissed", async () => {
     const account = fakeAccount({ requiresTwoFactor: true });
-    connection = await connect(era, ELICITATION, answerElicitations([{ action: "decline" }], []));
+    connection = await connect(era, ELICITATION, answerElicitations([{ action: "cancel" }], []));
     const result = await call(connection, "instagram_login");
     expect(result.isError).toBeFalsy();
     expect(textOf(result)).toContain("instagram_complete_2fa");
     expect(account.pending).not.toBeNull();
+  });
+
+  it("tells the model not to push when the user declines to enter the code", async () => {
+    fakeAccount({ requiresTwoFactor: true });
+    connection = await connect(era, ELICITATION, answerElicitations([{ action: "decline" }], []));
+    const result = await call(connection, "instagram_login");
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toContain("declined");
+    expect(textOf(result)).not.toContain("instagram_complete_2fa");
   });
 
   it("returns an error when Instagram rejects the elicited code", async () => {
@@ -223,17 +245,31 @@ describe.each(ERAS)("instagram_complete_2fa and instagram_logout on the %s era",
     expect(igpapiClient.completeTwoFactorLogin).not.toHaveBeenCalled();
   });
 
-  it("logs out and deletes the session", async () => {
+  it("ends the session on Instagram, then deletes it locally", async () => {
     const account = fakeAccount({ loggedIn: true });
     const result = await call(connection, "instagram_logout");
+    expect(account.revoke).toHaveBeenCalledTimes(1);
+    expect(igpapiClient.logout).toHaveBeenCalledTimes(1);
     expect(textOf(result)).toContain("@alice");
+    expect(textOf(result)).toContain("ended on Instagram");
     expect(account.loggedIn).toBe(false);
   });
 
-  it("reports when already logged out", async () => {
-    fakeAccount();
+  it("still deletes the local session when Instagram cannot be reached", async () => {
+    const account = fakeAccount({ loggedIn: true, revoke: jest.fn(async () => Promise.reject(new Error("offline"))) });
     const result = await call(connection, "instagram_logout");
-    expect(textOf(result)).toContain("Already logged out");
-    expect(igpapiClient.logout).not.toHaveBeenCalled();
+    expect(result.isError).toBeFalsy();
+    expect(igpapiClient.logout).toHaveBeenCalledTimes(1);
+    expect(textOf(result)).toContain("could not be reached");
+    expect(account.loggedIn).toBe(false);
+  });
+
+  it("clears leftover local state even without an active session", async () => {
+    const account = fakeAccount({ pending: TWO_FACTOR });
+    const result = await call(connection, "instagram_logout");
+    expect(account.revoke).not.toHaveBeenCalled();
+    expect(igpapiClient.logout).toHaveBeenCalledTimes(1);
+    expect(account.pending).toBeNull();
+    expect(textOf(result)).toContain("no active Instagram session");
   });
 });

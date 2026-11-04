@@ -33,7 +33,7 @@ export const mediaIdInput = z
 export const cursorInput = z
   .string()
   .min(1)
-  .max(500)
+  .max(4096)
   .describe("Pagination cursor: pass the `nextMaxId` value from the previous page");
 
 export function limitInput(defaultValue: number, max: number, options: { paginated?: boolean } = {}) {

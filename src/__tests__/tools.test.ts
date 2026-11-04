@@ -342,6 +342,22 @@ describe("post, comment, story and timeline tools", () => {
     expect(result.structuredContent).toMatchObject({ moreAvailable: true, nextMaxId: "min:older-2" });
   });
 
+  it("instagram_get_post_comments keeps paging in the min_id direction when both cursors come back", async () => {
+    const feed = {
+      nextMaxId: undefined as string | undefined,
+      nextMinId: undefined as string | undefined,
+      async items() {
+        feed.nextMaxId = "newer-1";
+        feed.nextMinId = "older-2";
+        return [];
+      },
+      isMoreAvailable: () => true,
+    };
+    stubInstagram({ feed: { mediaComments: jest.fn(() => feed) } });
+    const result = await call(connection, "instagram_get_post_comments", { mediaId: "1_7", maxId: "min:older-1" });
+    expect(result.structuredContent).toMatchObject({ nextMaxId: "min:older-2" });
+  });
+
   it("instagram_get_user_stories maps active stories", async () => {
     const items = [
       {

@@ -44,7 +44,9 @@ const outputSchema = z.object({
  * The comments feed pages with either `max_id` or `min_id` (instagram-private-api
  * keeps them in `nextMaxId` / `nextMinId` and reports more results when either
  * is set). Both are folded into the one opaque `maxId`/`nextMaxId` cursor the
- * tool exposes; a `min:` prefix marks a min_id cursor.
+ * tool exposes; a `min:` prefix marks a min_id cursor. A response can carry
+ * both, so a continuation keeps the direction of the cursor it was given; the
+ * first page prefers max_id.
  */
 const MIN_CURSOR_PREFIX = "min:";
 
@@ -62,12 +64,13 @@ function setCommentsCursor(feed: CommentsFeedCursor, cursor: string | undefined)
   }
 }
 
-function getCommentsCursor(feed: CommentsFeedCursor): { moreAvailable: boolean; nextMaxId?: string } {
-  const cursor = feed.nextMaxId
-    ? String(feed.nextMaxId)
-    : feed.nextMinId
-      ? `${MIN_CURSOR_PREFIX}${feed.nextMinId}`
-      : undefined;
+function getCommentsCursor(
+  feed: CommentsFeedCursor,
+  previousCursor: string | undefined
+): { moreAvailable: boolean; nextMaxId?: string } {
+  const max = feed.nextMaxId ? String(feed.nextMaxId) : undefined;
+  const min = feed.nextMinId ? `${MIN_CURSOR_PREFIX}${feed.nextMinId}` : undefined;
+  const cursor = previousCursor?.startsWith(MIN_CURSOR_PREFIX) ? (min ?? max) : (max ?? min);
   return cursor ? { moreAvailable: true, nextMaxId: cursor } : { moreAvailable: false };
 }
 
@@ -107,7 +110,7 @@ export function registerGetPostComments(server: McpServer): void {
         return structuredResult({
           mediaId,
           comments,
-          ...getCommentsCursor(cursorState),
+          ...getCommentsCursor(cursorState, maxId),
         });
       } catch (error) {
         throw toToolError(error, `media ${mediaId}`);

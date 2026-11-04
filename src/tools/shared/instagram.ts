@@ -18,7 +18,30 @@ import {
 import type { IgApiClient } from "instagram-private-api";
 import { igpapiClient } from "../../igpapi/index.js";
 
+/** How long tool calls wait for startup session restore before giving up on it. */
+export const STARTUP_WAIT_MS = 35_000;
+
 let startup: Promise<unknown> | undefined;
+
+/**
+ * Settles with the promise's value, or `{ done: false }` after `ms`.
+ * Rejections propagate. The timer does not keep the process alive.
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number
+): Promise<{ done: true; value: T } | { done: false }> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<{ done: false }>((resolve) => {
+    timer = setTimeout(() => resolve({ done: false }), ms);
+    timer.unref();
+  });
+  try {
+    return await Promise.race([promise.then((value) => ({ done: true as const, value })), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Registers the server's startup work (session restore / auto-login) so tool
@@ -30,9 +53,21 @@ export function setStartupPromise(promise: Promise<unknown>): void {
   startup = promise.catch(() => undefined);
 }
 
+/**
+ * Waits for startup, but at most STARTUP_WAIT_MS. If Instagram stalls during
+ * session restore, tools stop waiting (they then report "not logged in")
+ * instead of every call hanging. Later calls don't wait again.
+ */
 export async function waitForStartup(): Promise<void> {
-  if (startup) {
-    await startup;
+  if (!startup) {
+    return;
+  }
+  const outcome = await withTimeout(startup, STARTUP_WAIT_MS);
+  if (!outcome.done) {
+    startup = undefined;
+    console.error(
+      `[mcp-instagram] Session restore did not finish within ${STARTUP_WAIT_MS / 1000}s; continuing without it.`
+    );
   }
 }
 
