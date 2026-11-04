@@ -4,7 +4,7 @@
   "display_name": "Instagram",
   "version": "0.0.0",
   "description": "Read Instagram profiles, posts, stories and comments, and like, comment and follow.",
-  "long_description": "Unofficial Instagram integration built on instagram-private-api. Instagram may flag or restrict accounts used through unofficial APIs, so prefer a secondary account. Write actions (likes, comments, follows) are rate limited by the server. Your password is sent only in the login request and never written to disk; the session is saved privately in ~/.config/mcp-instagram (or %APPDATA%\\mcp-instagram on Windows).",
+  "long_description": "Unofficial Instagram integration built on instagram-private-api. Instagram may flag or restrict accounts used through unofficial APIs, so prefer a secondary account. Write actions (likes, comments, follows) are rate limited by the server. You log in with the session cookie of a logged-in instagram.com browser session (no password needed); the session is saved privately in ~/.config/mcp-instagram (or %APPDATA%\\mcp-instagram on Windows).",
   "author": {
     "name": "Anand Kamble",
     "email": "amkamble@icloud.com",
@@ -17,37 +17,56 @@
   "homepage": "https://github.com/anand-kamble/mcp-instagram#readme",
   "support": "https://github.com/anand-kamble/mcp-instagram/issues",
   "license": "ISC",
-  "keywords": ["instagram", "social media", "mcp"],
-  "privacy_policies": ["https://privacycenter.instagram.com/policy"],
+  "keywords": [
+    "instagram",
+    "social media",
+    "mcp"
+  ],
+  "privacy_policies": [
+    "https://privacycenter.instagram.com/policy"
+  ],
   "server": {
     "type": "node",
     "entry_point": "build/server.js",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/build/server.js"],
+      "args": [
+        "${__dirname}/build/server.js"
+      ],
       "env": {
+        "IG_SESSION_ID": "${user_config.ig_session_id}",
         "IG_USERNAME": "${user_config.ig_username}",
         "IG_PASSWORD": "${user_config.ig_password}"
       }
     }
   },
   "user_config": {
+    "ig_session_id": {
+      "type": "string",
+      "title": "Instagram session ID",
+      "description": "The value of the `sessionid` cookie from instagram.com in a browser where you are logged in. Treat it like a password.",
+      "sensitive": true,
+      "required": true
+    },
     "ig_username": {
       "type": "string",
       "title": "Instagram username",
-      "description": "The account to log in with.",
-      "required": true
+      "description": "Optional. If set, a session for a different account is refused.",
+      "required": false
     },
     "ig_password": {
       "type": "string",
       "title": "Instagram password",
-      "description": "Used only for the login request. If the account uses two-factor authentication, you will be asked for the code in the conversation.",
+      "description": "Optional; password login is currently unavailable because Instagram changed its login flow. Never written to disk.",
       "sensitive": true,
-      "required": true
+      "required": false
     }
   },
   "compatibility": {
-    "platforms": ["darwin", "win32"],
+    "platforms": [
+      "darwin",
+      "win32"
+    ],
     "runtimes": {
       "node": ">=20.0.0"
     }

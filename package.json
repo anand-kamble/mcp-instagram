@@ -10,7 +10,8 @@
   },
   "files": [
     "build/",
-    "bin/"
+    "bin/",
+    "NOTICE"
   ],
   "scripts": {
     "prebuild": "node -e \"require('fs').rmSync('build',{recursive:true,force:true})\"",
